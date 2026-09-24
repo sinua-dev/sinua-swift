@@ -38,7 +38,7 @@ Once it is, from the distribution repository (the monorepo's `packages/ios` with
 the engine as a released binary; `scripts/release/swift-dist.mjs`):
 
 ```swift
-.package(url: "https://github.com/sinua-dev/sinua-swift", from: "0.1.0-beta.4")
+.package(url: "https://github.com/sinua-dev/sinua-swift", from: "0.1.0-beta.5")
 ```
 
 The engine is a `.binaryTarget(path:)` pointing at `core_engineFFI.xcframework`,
