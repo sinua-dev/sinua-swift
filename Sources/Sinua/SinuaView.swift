@@ -2,6 +2,7 @@ import CoreEngine
 import QuartzCore
 import SinuaVoiceTypes
 import SwiftUI
+import UIKit
 
 /// Light/dark handling. `auto` follows the environment's `colorScheme`;
 /// frames with `colorMode: fixed` look the same either way (the paint contract).
@@ -37,12 +38,23 @@ public struct SinuaView: View {
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.scenePhase) private var scenePhase
     @State private var onScreen = false
+    /// The view's short side, for the small-view frame cap (0 until laid out).
+    @State private var shortSide: CGFloat = 0
     @ObservedObject private var power = LowPowerMonitor.shared
     @ObservedObject private var app = AppActivityMonitor.shared
 
     /// An FX Spec (JSON text). `state` picks the spec's lifecycle state; with a voice it
     /// defaults to the voice's `AgentState` ("listening", "speaking", ...), so a spec's
-    /// `states` follow the conversation. State changes cross-fade over `crossFade` seconds.
+    /// `states` follow the conversation. State changes animate: the same pattern interpolates
+    /// its parameters, a pattern change morphs (the orb lattice trio) or cross-fades, over the
+    /// spec's `transitions` (default 0.6 s). `crossFade` overrides every change's duration
+    /// (0 = a cut).
+    ///
+    /// Accessibility (docs/fx-view.md): the name follows the state ("Coach, listening");
+    /// `labels` words it per state (over the spec's `accessibility.states`); changes are
+    /// spoken to VoiceOver, politely and rate-limited, unless `announce` is false; `haptics`
+    /// taps lightly when the agent starts listening. `rules`: a spec's 1.9 `rules` derive the
+    /// state from `inputs` (off while a voice is bound, or with `rules: false`).
     public init(
         spec: String,
         voice: VoiceSource? = nil,
@@ -50,20 +62,26 @@ public struct SinuaView: View {
         state: String? = nil,
         inputs: [String: Double] = [:],
         voiceLevelInput: String? = nil,
-        crossFade: Double = 0.25,
+        crossFade: Double? = nil,
         theme: FxTheme = .auto,
         paused: Bool = false,
         reducedMotion: FxReducedMotion = .auto,
         accessibilityLabel: String? = nil,
         maxFps: Double? = nil,
         lowPower: FxLowPower = .auto,
-        onFrame: ((FxFrameStats) -> Void)? = nil
+        onFrame: ((FxFrameStats) -> Void)? = nil,
+        labels: [String: String] = [:],
+        announce: Bool? = nil,
+        haptics: Bool = false,
+        rules: Bool = true,
+        effect: SinuaEffectTrigger? = nil
     ) {
         config = FxConfig(
             input: .spec(spec), voice: voice, voiceOverrides: voiceOverrides, specState: state, inputs: inputs,
             voiceLevelInput: voiceLevelInput, crossFade: crossFade, theme: theme, paused: paused,
             reducedMotion: reducedMotion,
-            label: accessibilityLabel, maxFps: maxFps, lowPower: lowPower, onFrame: onFrame
+            label: accessibilityLabel, maxFps: maxFps, lowPower: lowPower, onFrame: onFrame,
+            labels: labels, announce: announce, haptics: haptics, rules: rules, effect: effect
         )
     }
 
@@ -86,14 +104,19 @@ public struct SinuaView: View {
         accessibilityLabel: String? = nil,
         maxFps: Double? = nil,
         lowPower: FxLowPower = .auto,
-        onFrame: ((FxFrameStats) -> Void)? = nil
+        onFrame: ((FxFrameStats) -> Void)? = nil,
+        labels: [String: String] = [:],
+        announce: Bool? = nil,
+        haptics: Bool = false,
+        effect: SinuaEffectTrigger? = nil
     ) {
         config = FxConfig(
             input: .state(pattern, size, overrides, speed), voice: voice, voiceOverrides: voiceOverrides,
             specState: state, inputs: inputs,
-            voiceLevelInput: nil, crossFade: 0, theme: theme, paused: paused, reducedMotion: reducedMotion,
+            voiceLevelInput: nil, crossFade: nil, theme: theme, paused: paused, reducedMotion: reducedMotion,
             label: accessibilityLabel,
-            maxFps: maxFps, lowPower: lowPower, onFrame: onFrame
+            maxFps: maxFps, lowPower: lowPower, onFrame: onFrame,
+            labels: labels, announce: announce, haptics: haptics, effect: effect
         )
     }
 
@@ -110,7 +133,7 @@ public struct SinuaView: View {
         specState: String?,
         inputs: [String: Double] = [:],
         voiceLevelInput: String? = nil,
-        crossFade: Double = 0.25,
+        crossFade: Double? = nil,
         theme: FxTheme = .auto,
         paused: Bool = false,
         reducedMotion: FxReducedMotion = .auto,
@@ -187,8 +210,9 @@ public struct SinuaView: View {
     public var body: some View {
         // Reduced motion: no animation, except a throttled redraw while a
         // voice is attached (the voice cue is information, not decoration).
-        let animate = running && (!reduced || model.hasVoice)
-        let perf = model.performance(config, lowPower: lowPowerOn)
+        let animate = running && (!reduced || model.hasVoice || model.effectRunning)
+        let perf = model.performance(
+            config, lowPower: lowPowerOn, small: shortSide > 0 && shortSide < fxSmallViewPoints)
         // Pacing: the timeline schedules at the cap (no per-vsync wakeups).
         let cap = reduced ? min(30, perf.maxFps ?? 30) : perf.maxFps
         TimelineView(.animation(minimumInterval: cap.map { 1 / $0 }, paused: !animate)) { timeline in
@@ -198,23 +222,38 @@ public struct SinuaView: View {
                     into: &context, size: size)
             }
         }
+        // The box size, read without branching the body (an `if` would restart the timeline).
+        .background(GeometryReader { g in Color.clear.preference(key: FxBoxSizeKey.self, value: g.size) })
+        .onPreferenceChange(FxBoxSizeKey.self) { shortSide = min($0.width, $0.height) }
         .onAppear {
             model.configureIfNeeded(config)
             onScreen = true
         }
         .onDisappear { onScreen = false }
-        .modifier(FxAccessibility(label: config.label ?? model.defaultLabel))
+        .modifier(FxAccessibilityModifier(label: model.a11yLabel))
     }
 }
 
-private struct FxAccessibility: ViewModifier {
+/// Below this short side (points) a view defaults to 30 fps: a list of avatars,
+/// a badge (roadmap 10). The app's `maxFps` or the spec's `performance.maxFps` wins.
+let fxSmallViewPoints: CGFloat = 48
+let fxSmallViewMaxFps: Double = 30
+
+private struct FxBoxSizeKey: PreferenceKey {
+    static let defaultValue: CGSize = .zero
+    static func reduce(value: inout CGSize, nextValue: () -> CGSize) { value = nextValue() }
+}
+
+private struct FxAccessibilityModifier: ViewModifier {
     let label: String
+    // One structure for every label: an `if` here would give the content a new identity
+    // whenever the name went empty <-> named, restarting the TimelineView inside it.
     func body(content: Content) -> some View {
-        if label.isEmpty {
-            content.accessibilityHidden(true)
-        } else {
-            content.accessibilityElement().accessibilityLabel(label).accessibilityAddTraits(.isImage)
-        }
+        content
+            .accessibilityElement()
+            .accessibilityLabel(label)
+            .accessibilityAddTraits(label.isEmpty ? [] : .isImage)
+            .accessibilityHidden(label.isEmpty)
     }
 }
 
@@ -230,7 +269,7 @@ struct FxConfig {
     let specState: String?
     let inputs: [String: Double]
     let voiceLevelInput: String?
-    let crossFade: Double
+    let crossFade: Double?
     let theme: FxTheme
     let paused: Bool
     let reducedMotion: FxReducedMotion
@@ -238,6 +277,11 @@ struct FxConfig {
     let maxFps: Double?
     let lowPower: FxLowPower
     let onFrame: ((FxFrameStats) -> Void)?
+    var labels: [String: String] = [:]
+    var announce: Bool?
+    var haptics = false
+    var rules = true
+    var effect: SinuaEffectTrigger?
 
     /// What forces a re-resolve / rebind (the rest is read every frame).
     var key: String {
@@ -246,7 +290,7 @@ struct FxConfig {
         switch input {
         case .spec(let json):
             return
-                "spec|\(json.hashValue)|\(v)|\(vo)|\(crossFade)|\(specState ?? "")|\(inputs.sorted { $0.key < $1.key })|\(voiceLevelInput ?? "")"
+                "spec|\(json.hashValue)|\(v)|\(vo)|\(crossFade.map { "\($0)" } ?? "-")|\(specState ?? "")|\(inputs.sorted { $0.key < $1.key })|\(voiceLevelInput ?? "")"
         case .state(let s, let size, let o, let speed):
             return "state|\(s)|\(size)|\(o.sorted { $0.key < $1.key })|\(speed)|\(v)|\(vo)"
         }
@@ -295,21 +339,48 @@ final class FxModel: ObservableObject {
 
     @Published private(set) var hasVoice = false
     @Published private(set) var defaultLabel = ""
+    /// The accessible name now: it follows the state ("Coach, listening"; docs/fx-view.md).
+    @Published private(set) var a11yLabel = ""
+    /// The spec's 1.9 `accessibility` block (empty without a spec).
+    private var a11yInfo = FxAccessibility(name: nil, states: [:], announce: nil)
+    /// The state the name last followed (`.none` = not yet).
+    private var a11yState: String??
+    private var announcer = AnnouncerState(started: false, current: nil, since: 0, last: nil, lastAt: 0)
+    private var announceGen = 0
+    private var offVoiceState: (() -> Void)?
+    /// FX Spec 1.9 `rules`: the state they picked last (hysteresis), and the inputs it was for.
+    private var derived: String?
+    private var rulesKey: String?
+    private var reducedNow = false
+
+    /// Test hooks. VoiceOver announcements are queued, not interrupting, and only while it runs.
+    static var postAnnouncement: (String) -> Void = { text in
+        guard UIAccessibility.isVoiceOverRunning else { return }
+        UIAccessibility.post(
+            notification: .announcement,
+            argument: NSAttributedString(string: text, attributes: [.accessibilitySpeechQueueAnnouncement: true]))
+    }
+    static var playHaptic: () -> Void = { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
+    static var now: () -> Double = { ProcessInfo.processInfo.systemUptime }
     private var config: FxConfig?
     private var configKey: String?
     private var voice: VoiceOverrides?
     private var boundSource: ObjectIdentifier?
+    /// A raw source is bound through its `SharedVoiceSource`: this view keeps its own tracker
+    /// (its family's easing) and other views / a voice button keep theirs.
+    private var tracked: SharedVoiceSource.Tracked?
     private var clock = PhaseClock()
-    /// The engine speed per lifecycle state of a spec, cached. `FxStatePlayer` resolves the
-    /// spec *with* the state and multiplies by that state's speed, so the view must use the
-    /// same number; the file's base speed would make a state with its own speed jump once.
-    private var specSpeeds: [String: Double] = [:]
+    /// The plain path's state transition (the spec path's lives in `FxStatePlayer`).
+    private var transition = StateTransition()
+    private var lastLifecycle: String??
     /// The built-in voice-state behaviour for plain input (`pattern` + `state`, no spec):
     /// `voiceStateProfile` gives the overrides, a speed multiplier and which app input drives
     /// `audioLevel`. Cached per pattern+state; nil for a state outside the five voice names,
     /// which leaves an app's own state names alone.
     private var profiles: [String: VoiceStateProfile?] = [:]
     private var lastDate: Date?
+    /// The pattern fills the box (`patternLayout` == "box"): see `draw`.
+    private var boxLayout = false
     private var resolved:
         (state: String, size: UInt32, speed: Double, presetSpeed: Double, overrides: [String: Double])?
     private var spec: String?
@@ -326,14 +397,16 @@ final class FxModel: ObservableObject {
         return value
     }
 
-    /// The engine speed of one lifecycle state of a spec (the product the player will use).
-    private func specSpeed(spec: String, state: String?) -> Double {
-        let key = state ?? ""
-        if let cached = specSpeeds[key] { return cached }
-        let r = resolveFxSpecWith(json: spec, state: state, inputs: [:], lowPower: player.lowPower)
-        let speed = r.ok ? (resolvedOpts(state: r.state, size: r.size)?.speed ?? 1) * r.speed : 1
-        specSpeeds[key] = speed
-        return speed
+    /// The plain path's design for a lifecycle state, as a transition side: the voice-state
+    /// profile under the app's overrides, at the effective speed. Live keys are not part of it.
+    private func plainSide(
+        _ r: (state: String, size: UInt32, speed: Double, presetSpeed: Double, overrides: [String: Double]),
+        state: String?
+    ) -> TransitionSide {
+        let profile = profile(pattern: r.state, state: state)
+        return TransitionSide(
+            state: r.state, speed: r.presetSpeed * r.speed * (profile?.speed ?? 1),
+            overrides: (profile?.overrides ?? [:]).merging(r.overrides) { $1 })
     }
 
     /// Re-resolves only when something that needs it changed (FxConfig.key).
@@ -341,17 +414,23 @@ final class FxModel: ObservableObject {
     func configureIfNeeded(_ c: FxConfig) {
         let key = c.key
         if key == configKey {
+            let wordsChanged = config.map { $0.labels != c.labels || $0.announce != c.announce } ?? false
             config = c
+            if wordsChanged { a11yState = .none }
+            refreshA11y()
+            play(c.effect, config: c)
             return
         }
         configKey = key
         configure(c)
+        play(c.effect, config: c)
     }
 
     private func configure(_ c: FxConfig) {
         config = c
-        specSpeeds.removeAll()  // a new input: its states' speeds are new too
         profiles.removeAll()
+        transition.cancel()
+        lastLifecycle = nil
         switch c.input {
         case .spec(let json):
             spec = json
@@ -377,35 +456,149 @@ final class FxModel: ObservableObject {
                 print("SinuaView: unknown state \"\(state)\"")
             }
         }
+        boxLayout = resolved.map { patternLayout(pattern: $0.state) == "box" } ?? false
         if let vo = c.voiceOverrides {
             voice = vo
             boundSource = nil
+            tracked = nil
         } else if let src = c.voice {
             if boundSource != ObjectIdentifier(src) {
                 boundSource = ObjectIdentifier(src)
-                voice = VoiceOverrides.bind(
-                    src,
+                tracked?.release()
+                let t = SharedVoiceSource.of(src).track(
                     options: Self.voiceOptions(family: Self.specObject(spec), overrides: resolved?.overrides ?? [:]))
+                tracked = t
+                voice = t.overrides
             }
         } else {
             voice = nil
             boundSource = nil
+            tracked = nil
         }
         hasVoice = voice != nil
+        a11yInfo = spec.map { fxSpecAccessibility(json: $0) } ?? FxAccessibility(name: nil, states: [:], announce: nil)
+        rulesKey = nil
+        a11yState = .none
+        // The name and announcements follow the conversation even while the view is paused.
+        offVoiceState?()
+        offVoiceState = tracked?.source.listenState { [weak self] _ in
+            DispatchQueue.main.async { self?.refreshA11y() }
+        }
+        refreshA11y()
+    }
+
+    deinit { offVoiceState?() }
+
+    /// The state the view shows: with a voice bound, the app's `state` ?? the voice's; without,
+    /// the state the spec's `rules` derive from `inputs` ?? the app's `state`.
+    func lifecycle(_ c: FxConfig) -> String? {
+        if let voice { return c.specState ?? voice.state.rawValue }
+        applyRules(c)
+        return derived ?? c.specState
+    }
+
+    private func applyRules(_ c: FxConfig) {
+        guard let spec, resolved != nil, c.rules, voice == nil else {
+            derived = nil
+            rulesKey = nil
+            return
+        }
+        let key = "\(c.inputs.sorted { $0.key < $1.key })"
+        if key == rulesKey { return }
+        rulesKey = key
+        derived = fxSpecDeriveState(json: spec, inputs: c.inputs, previous: derived)
+    }
+
+    // One-shot effect (docs/fx-view.md, *One-shot effects*).
+    @Published private(set) var effectRunning = false
+    private var effectPlayed: UUID?
+    private var effect: (code: UInt32, duration: Double, start: Double)?
+
+    /// Plays `trigger` if it's a new one (each `SinuaEffectTrigger` value plays once).
+    func play(_ trigger: SinuaEffectTrigger?, config c: FxConfig) {
+        guard let trigger, trigger.id != effectPlayed else { return }
+        effectPlayed = trigger.id
+        guard let info = effectInfo(name: trigger.kind.rawValue) else { return }
+        effect = (info.code, info.duration, Self.now())
+        // Published after this view update, so the timeline wakes for the effect.
+        DispatchQueue.main.async { [weak self] in self?.effectRunning = true }
+        // An event: spoken now, outside the state rate limit.
+        let base = c.label ?? a11yInfo.name ?? defaultLabel
+        if !base.isEmpty, c.announce ?? a11yInfo.announce ?? true {
+            Self.postAnnouncement(c.labels["effect:\(trigger.kind.rawValue)"] ?? info.words)
+        }
+    }
+
+    /// The running effect's runtime keys (empty once it has ended).
+    func effectKeys(reduced: Bool) -> [String: Double] {
+        guard let e = effect else { return [:] }
+        let age = Self.now() - e.start
+        if age >= e.duration {
+            effect = nil
+            DispatchQueue.main.async { [weak self] in self?.effectRunning = false }
+            return [:]
+        }
+        return ["effectCode": Double(e.code), "effectAge": max(0, age), "effectReduced": reduced ? 1 : 0]
+    }
+
+    /// The state may have changed: rename the view, and let the announcer decide.
+    func refreshA11y() {
+        guard let c = config else { return }
+        let st = lifecycle(c)
+        if case .some(let seen) = a11yState, seen == st { return }
+        let first = a11yState == nil
+        a11yState = .some(st)
+        let base = c.label ?? a11yInfo.name ?? defaultLabel
+        let label =
+            base.isEmpty
+            ? "" : a11yAccessibleName(name: base, state: st, specWords: a11yInfo.states, appWords: c.labels)
+        if first {
+            // The first name goes in with the configuration (as `defaultLabel` does), so the
+            // first body already carries it.
+            a11yLabel = label
+        } else {
+            // Later changes are published after this view update (SwiftUI forbids publishing
+            // during one).
+            DispatchQueue.main.async { [weak self] in
+                if let self, self.a11yLabel != label { self.a11yLabel = label }
+            }
+        }
+        let speak = !base.isEmpty && (c.announce ?? a11yInfo.announce ?? true)
+        stepAnnouncer(
+            speak ? a11yStateWords(name: base, state: st, specWords: a11yInfo.states, appWords: c.labels) : nil)
+        // "Your turn": a light tap when the agent starts listening (opt-in, never under reduced motion).
+        if !first, st == AgentState.listening.rawValue, c.haptics, !reducedNow { Self.playHaptic() }
+    }
+
+    private func stepAnnouncer(_ words: String?) {
+        announceGen += 1
+        let gen = announceGen
+        let now = Self.now()
+        let out = a11yAnnounceStep(prev: announcer, words: words, now: now)
+        announcer = out.state
+        if let w = out.announce { Self.postAnnouncement(w) }
+        if let at = out.recheckAt {
+            DispatchQueue.main.asyncAfter(deadline: .now() + max(0, at - now)) { [weak self] in
+                guard let self, self.announceGen == gen else { return }
+                self.stepAnnouncer(self.announcer.current)
+            }
+        }
     }
 
     /// The effective cap + low-power overrides (see `fxPerformance`). FX Spec 1.2's
     /// resolver fields plug in here once UniFFI exposes them (`specMaxFps`).
-    func performance(_ c: FxConfig, lowPower: Bool) -> FxPerformance {
-        if player.lowPower != lowPower { specSpeeds.removeAll() }  // a state's resolved speed can change
+    /// A small view (`small`) defaults to 30 fps unless the app's `maxFps` (0 = display
+    /// rate) or the spec's `performance.maxFps` says otherwise (roadmap 10).
+    func performance(_ c: FxConfig, lowPower: Bool, small: Bool = false) -> FxPerformance {
         configureIfNeeded(c)
         player.lowPower = lowPower
-        guard let spec else { return fxPerformance(lowPower: lowPower, optionMaxFps: c.maxFps) }
+        let smallCap = small && c.maxFps == nil ? fxSmallViewMaxFps : nil
+        guard let spec else { return fxPerformance(lowPower: lowPower, optionMaxFps: c.maxFps ?? smallCap) }
         // FX Spec 1.2: the resolver reports the cap for this power state and sheds
         // the spec's `lowPower.disable` itself (FxStatePlayer passes lowPower).
         let r = resolveFxSpecWith(json: spec, state: nil, inputs: [:], lowPower: lowPower)
         return fxPerformance(
-            lowPower: lowPower, optionMaxFps: c.maxFps, specMaxFps: r.maxFps,
+            lowPower: lowPower, optionMaxFps: c.maxFps ?? (r.maxFps == nil ? smallCap : nil), specMaxFps: r.maxFps,
             specHandlesLowPower: Self.specHandlesLowPower(spec))
     }
 
@@ -420,6 +613,7 @@ final class FxModel: ObservableObject {
         _ c: FxConfig, at date: Date, running: Bool, reduced: Bool, dark: Bool, perf: FxPerformance,
         into context: inout GraphicsContext, size: CGSize
     ) {
+        reducedNow = reduced
         configureIfNeeded(c)
         guard let config, let resolved else { return }
         let t0 = config.onFrame == nil ? 0 : CACurrentMediaTime()
@@ -429,7 +623,12 @@ final class FxModel: ObservableObject {
         if running && !reduced { clock.advance(min(rawDt, max(Self.maxDt, perf.maxFps.map { 1.5 / $0 } ?? 0))) }
         let voiceMap = (voice?.overrides(dt: rawDt) ?? [:])
         // Low-power overrides sit between the spec's and the voice's.
-        let extra = perf.overrides.merging(voiceMap) { $1 }
+        var extra = perf.overrides.merging(voiceMap) { $1 }
+        // A one-shot effect the view is playing (docs/fx-view.md): its runtime keys.
+        extra.merge(effectKeys(reduced: reduced)) { $1 }
+        // A box-layout pattern (edge `framing`, signal `playing`) fills the box: it
+        // gets the box ratio as `aspect` and lays out in `size * aspect` by `size`.
+        if boxLayout, size.height > 0 { extra["aspect"] = min(8, max(0.125, size.width / size.height)) }
 
         var frame: OrbFrame?
         var previous: OrbFrame?
@@ -438,11 +637,11 @@ final class FxModel: ObservableObject {
             // FX Spec: v1.1 state (default = the voice's AgentState) + inputs, runtime voice keys spread last.
             var inputs = config.inputs
             if let name = config.voiceLevelInput, let voice { inputs[name] = voice.metrics.level }
-            player.setState(config.specState ?? voice?.state.rawValue)
-            // The player multiplies by the state's speed, so it takes an *elapsed*:
-            // `max(1e-9, …)` only guards the division; the phase itself freezes at speed 0.
-            // The player multiplies by *this state's* speed, so the view divides by the same one.
-            let stateSpeed = specSpeed(spec: spec, state: config.specState ?? voice?.state.rawValue)
+            player.setState(self.lifecycle(config), spec: spec)
+            if reduced { player.skipTransition() }
+            // The player multiplies by its effective speed (mixed mid-transition), so it takes an
+            // *elapsed*: `max(1e-9, …)` only guards the division; the phase freezes at speed 0.
+            let stateSpeed = player.speed(spec: spec, inputs: inputs)
             let at =
                 reduced
                 ? Self.reducedMotionT / max(1e-9, stateSpeed)
@@ -454,23 +653,46 @@ final class FxModel: ObservableObject {
         } else {
             // With a lifecycle state (given, or the bound voice's), the built-in voice-state
             // profile goes *under* the app's own overrides; the voice's live keys stay last.
-            let lifecycle = config.specState ?? voice?.state.rawValue
+            let lifecycle = self.lifecycle(config)
+            if lastLifecycle.map({ $0 != lifecycle }) ?? false {
+                // A state change animates (0.6 s easeInOut, or `crossFade` seconds); reduced motion cuts.
+                transition.start(duration: reduced ? 0 : (config.crossFade ?? 0.6), curve: "easeInOut")
+            }
+            lastLifecycle = .some(lifecycle)
+            transition.advance(min(rawDt, Self.maxDt))
+            if reduced { transition.cancel() }
             let profile = profile(pattern: resolved.state, state: lifecycle)
-            let t =
-                reduced
-                ? Self.reducedMotionT
-                : clock.phase(preset: resolved.presetSpeed, speed: resolved.speed * (profile?.speed ?? 1))
-            var merged = (profile?.overrides ?? [:]).merging(resolved.overrides) { $1 }.merging(extra) { $1 }
+            let side = plainSide(resolved, state: lifecycle)
+            let t: Double
+            if reduced {
+                t = Self.reducedMotionT
+            } else if transition.active {
+                t = clock.phase(preset: 1, speed: transition.speed(side, size: resolved.size))
+            } else {
+                t = clock.phase(preset: resolved.presetSpeed, speed: resolved.speed * (profile?.speed ?? 1))
+            }
+            var live = extra
             // `audioInput` names which app input drives `audioLevel` (never an engine key).
-            if let name = profile?.audioInput, let level = config.inputs[name] { merged["audioLevel"] = level }
-            frame = frameWithOverrides(state: resolved.state, size: resolved.size, t: t, overrides: merged)
+            if let name = profile?.audioInput, let level = config.inputs[name] { live["audioLevel"] = level }
+            if transition.active {
+                let out = transition.frames(side, size: resolved.size, t: t, extra: live)
+                frame = out.frame
+                previous = out.previous
+                blend = out.blend
+            } else {
+                transition.settle(side)
+                frame = frameWithOverrides(
+                    state: resolved.state, size: resolved.size, t: t, overrides: side.overrides.merging(live) { $1 })
+            }
         }
         guard let frame else { return }
         let t1 = config.onFrame == nil ? 0 : CACurrentMediaTime()
 
-        // Square engine space, centered in whatever box the view has.
-        let side = min(size.width, size.height)
-        context.translateBy(x: (size.width - side) / 2, y: (size.height - side) / 2)
+        // Square engine space, centered in whatever box the view has -- or, for a
+        // box-layout pattern, the whole box at the height's scale (FxPaint scales by
+        // the square it's given; the frame itself runs `size * aspect` wide).
+        let side = boxLayout ? size.height : min(size.width, size.height)
+        if !boxLayout { context.translateBy(x: (size.width - side) / 2, y: (size.height - side) / 2) }
         let box = CGSize(width: side, height: side)
         let engineSize = Double(resolved.size)
         if let previous {
@@ -514,35 +736,55 @@ final class FxModel: ObservableObject {
     }
 }
 
-/// Native counterpart of @sinua/core's `FxSpecPlayer` (the Studio's state
-/// cross-fade: `crossFade` seconds, cubic ease-out), over UniFFI's
-/// `frameFromFxSpecWith`-equivalent resolution plus extra runtime keys.
+/// Native counterpart of @sinua/core's `FxSpecPlayer`: the spec's lifecycle state and its
+/// transitions (`StateTransition`; the spec's 1.9 `transitions`, or `crossFade` seconds when
+/// set), over UniFFI's resolution plus extra runtime keys.
 struct FxStatePlayer {
-    var crossFade = 0.25
+    /// Overrides every state change's duration (0 = a cut); nil = the spec's `transitions`.
+    var crossFade: Double?
     /// FX Spec 1.2 low power, passed to the resolver (sheds `performance.lowPower.disable`).
     var lowPower = false
     private var current: String?
-    private var previous: String?
-    private var fadeAge = Double.infinity
+    private var started = false
+    private var transition = StateTransition()
 
-    mutating func setState(_ key: String?) {
-        guard key != current else { return }
-        previous = current
+    mutating func setState(_ key: String?, spec: String) {
+        guard !started || key != current else { return }
+        if started {
+            let t = fxSpecTransition(json: spec, from: current, to: key)
+            transition.start(duration: crossFade ?? t.duration, curve: t.curve)
+        }
+        started = true
         current = key
-        fadeAge = crossFade > 0 ? 0 : .infinity
+    }
+
+    /// End a running transition now (reduced motion).
+    mutating func skipTransition() { transition.cancel() }
+
+    /// The current state as a transition side (effective speed), or nil if the spec has errors.
+    private func side(spec: String, inputs: [String: Double]) -> (TransitionSide, UInt32)? {
+        let r = resolveFxSpecWith(json: spec, state: current, inputs: inputs, lowPower: lowPower)
+        guard r.ok else { return nil }
+        let preset = resolvedOpts(state: r.state, size: r.size)?.speed ?? 1
+        return (TransitionSide(state: r.state, speed: preset * r.speed, overrides: r.overrides), r.size)
+    }
+
+    /// The effective speed multiplier the next frame renders at (mixed mid-transition).
+    func speed(spec: String, inputs: [String: Double]) -> Double {
+        guard let (s, size) = side(spec: spec, inputs: inputs) else { return 1 }
+        return transition.speed(s, size: size)
     }
 
     mutating func frame(spec: String, elapsed: Double, dt: Double, inputs: [String: Double], extra: [String: Double])
         -> (frame: OrbFrame?, previous: OrbFrame?, blend: Double)
     {
-        fadeAge += dt
-        let now = Self.render(
-            spec: spec, state: current, elapsed: elapsed, inputs: inputs, extra: extra, lowPower: lowPower)
-        guard fadeAge < crossFade else { return (now, nil, 1) }
-        let prev = Self.render(
-            spec: spec, state: previous, elapsed: elapsed, inputs: inputs, extra: extra, lowPower: lowPower)
-        let u = fadeAge / crossFade
-        return (now, prev, 1 - pow(1 - u, 3))
+        transition.advance(dt)
+        guard let (s, size) = side(spec: spec, inputs: inputs) else {
+            transition.cancel()
+            return (nil, nil, 1)
+        }
+        let t = elapsed * transition.speed(s, size: size)
+        return transition.frames(s, size: size, t: t, extra: extra)
     }
 
     static func render(

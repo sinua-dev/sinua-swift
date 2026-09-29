@@ -1,11 +1,11 @@
 import Foundation
 
-/// OpenAI Realtime WebRTC signaling without WebRTC: the two HTTP requests and
-/// their response handling (developers.openai.com `guides/voice-webrtc`,
-/// `realtime/client_secrets`), shared by the glue and its tests.
+/// OpenAI Realtime WebRTC signaling without WebRTC: the call request and its
+/// response handling (developers.openai.com `guides/voice-webrtc`), shared by the
+/// glue and its tests. The `ek_` itself is minted by your backend
+/// (`@sinua/voice/server`), never on the device.
 public enum OpenAIRealtimeSignaling {
     public static let callsURL = URL(string: "https://api.openai.com/v1/realtime/calls")!
-    public static let clientSecretsURL = URL(string: "https://api.openai.com/v1/realtime/client_secrets")!
     public static let defaultModel = "gpt-realtime"
     public static let defaultVoice = "marin"
 
@@ -31,40 +31,6 @@ public enum OpenAIRealtimeSignaling {
         try check(status: status, body: text)
         guard text.hasPrefix("v=") else { throw SignalingError.malformed("the calls response isn't an SDP answer") }
         return text
-    }
-
-    /// **DEV ONLY** -- minting an `ek_` on the device with a raw API key, the
-    /// Web Studio's demo path. A product mints on its backend and hands the app
-    /// the `ek_` (docs/audio-pipeline.md, *Credentials for a real integration*).
-    public static func clientSecretRequest(
-        apiKey: String, model: String = defaultModel, voice: String = defaultVoice,
-        instructions: String? = nil, url: URL = clientSecretsURL
-    ) -> URLRequest {
-        var session: [String: Any] = [
-            "type": "realtime",
-            "model": model,
-            // server_vad explicitly: speech_started/stopped are documented as emitted in that mode.
-            "audio": ["input": ["turn_detection": ["type": "server_vad"]], "output": ["voice": voice]],
-        ]
-        if let instructions { session["instructions"] = instructions }
-        var r = URLRequest(url: url)
-        r.httpMethod = "POST"
-        r.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        r.httpBody = Data(
-            GeminiLiveSession.json(["expires_after": ["anchor": "created_at", "seconds": 600], "session": session]).utf8
-        )
-        return r
-    }
-
-    public static func clientSecret(status: Int, body: Data) throws -> String {
-        try check(status: status, body: String(decoding: body, as: UTF8.self))
-        guard let obj = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any],
-            let value = obj["value"] as? String, !value.isEmpty
-        else {
-            throw SignalingError.malformed("the client_secrets response had no `value`")
-        }
-        return value
     }
 
     /// Performs a signaling request (the glue's HTTP path; tests pass a stubbed session).

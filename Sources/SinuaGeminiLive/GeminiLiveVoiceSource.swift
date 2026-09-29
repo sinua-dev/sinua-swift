@@ -14,10 +14,13 @@ import SinuaVoice
 /// Session resumption + reconnect on `goAway` or an unexpected close
 /// (3 attempts, 500 ms apart), as on Web.
 ///
-/// Credentials: an `auth_tokens/…` ephemeral token minted by your backend
-/// (production shape), or -- dev only -- a raw API key. Both travel as
-/// request headers (`Authorization: Token …` / `x-goog-api-key`), never in
-/// the URL; the key is held in memory only and never logged.
+/// Credentials: the shared contract (`CredentialSource`, docs/audio-pipeline.md).
+/// Only an `auth_tokens/…` ephemeral token is accepted, minted by your backend
+/// (`mintGeminiLiveCredential` in `@sinua/voice/server`, or `npx @sinua/voice
+/// dev-proxy`), which locks the model, voice and instructions. It travels as
+/// `Authorization: Token …`, never in the URL. With `credentialUrl` or a provider,
+/// every reconnect resumes the session with a **new** token (single-use by
+/// default). A raw API key is refused.
 ///
 /// Not verified against the live API yet (docs/audio-pipeline.md).
 public final class GeminiLiveVoiceSource: VoiceSource {
@@ -26,13 +29,14 @@ public final class GeminiLiveVoiceSource: VoiceSource {
     static let reconnectAttempts = 3
     static let reconnectDelay: TimeInterval = 0.5
 
-    private let endpoint: GeminiLiveSession.Endpoint
+    private let credentials: CredentialSource
+    /// A relay's URL (or tests'); the `Authorization` header still comes from the token.
+    private let endpointOverride: GeminiLiveSession.Endpoint?
+    private var endpoint: GeminiLiveSession.Endpoint?
     private let session: GeminiLiveSession
     private let graph: PcmAudioGraph
     private let socketFactory: LiveSocketFactory
     private let requestPermission: () async -> Bool
-    private let allowInsecureApiKey: Bool
-    private let credentialIsEphemeral: Bool
 
     // Main-thread state.
     private var socket: LiveSocket?
@@ -46,44 +50,85 @@ public final class GeminiLiveVoiceSource: VoiceSource {
     private var metricsCb: ((VoiceMetrics) -> Void)?
 
     /// - Parameters:
-    ///   - endpoint: override the Google endpoint (a relay/proxy your backend runs, or tests).
+    ///   - credential: where tokens come from -- `.url(…)`, `.provider { … }`, or `.value(…)` for one session.
+    ///   - instructions: deprecated -- set them when your backend mints the token, which locks them.
+    ///   - endpoint: override the Google URL (a relay your backend runs, or tests); the
+    ///     token's `Authorization` header is still added.
     ///   - device: the audio stack; `AVPcmAudioDevice()` (echo-cancelled mic + player) by default.
     public init(
-        credential: String,
+        credential: CredentialSource,
         model: String = GeminiLiveSession.defaultModel,
         instructions: String? = nil,
-        allowInsecureApiKey: Bool = false,
         endpoint: GeminiLiveSession.Endpoint? = nil,
         device: PcmAudioDevice = AVPcmAudioDevice(),
         socketFactory: LiveSocketFactory = URLSessionLiveSocketFactory(),
         requestPermission: @escaping () async -> Bool = AVPcmAudioDevice.requestPermission
     ) {
-        self.endpoint = endpoint ?? GeminiLiveSession.endpoint(credential: credential)
-        self.allowInsecureApiKey = allowInsecureApiKey
-        self.credentialIsEphemeral = InsecureCredential.isGeminiEphemeral(credential)
+        credentials = credential
+        endpointOverride = endpoint
+        if instructions != nil {
+            NSLog(
+                "GeminiLiveVoiceSource: `instructions` is deprecated -- set them when your backend mints the token "
+                    + "(mintGeminiLiveCredential from @sinua/voice/server), which locks them.")
+        }
         session = GeminiLiveSession(model: model, instructions: instructions)
         graph = PcmAudioGraph(device: device)
         self.socketFactory = socketFactory
         self.requestPermission = requestPermission
-        hasCredential = !credential.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    private let hasCredential: Bool
+    /// One fixed token (a pasted `auth_tokens/…`, single session).
+    public convenience init(
+        credential: String,
+        model: String = GeminiLiveSession.defaultModel,
+        instructions: String? = nil,
+        endpoint: GeminiLiveSession.Endpoint? = nil,
+        device: PcmAudioDevice = AVPcmAudioDevice(),
+        socketFactory: LiveSocketFactory = URLSessionLiveSocketFactory(),
+        requestPermission: @escaping () async -> Bool = AVPcmAudioDevice.requestPermission
+    ) {
+        self.init(
+            credential: .value(credential), model: model, instructions: instructions, endpoint: endpoint,
+            device: device, socketFactory: socketFactory, requestPermission: requestPermission)
+    }
+
+    /// Your backend's endpoint, answering `{ credential, expiresAt? }`; asked on every (re)connect.
+    public convenience init(
+        credentialUrl: URL,
+        model: String = GeminiLiveSession.defaultModel,
+        device: PcmAudioDevice = AVPcmAudioDevice(),
+        socketFactory: LiveSocketFactory = URLSessionLiveSocketFactory(),
+        requestPermission: @escaping () async -> Bool = AVPcmAudioDevice.requestPermission
+    ) {
+        self.init(
+            credential: .url(credentialUrl), model: model, device: device, socketFactory: socketFactory,
+            requestPermission: requestPermission)
+    }
+
+    private var connectionCb: ((Bool) -> Void)?
+    private var sessionUp = false
 
     public func onMetrics(_ cb: @escaping (VoiceMetrics) -> Void) { metricsCb = cb }
     public func onStateChange(_ cb: @escaping (AgentState) -> Void) { session.onState = cb }
     public func onInterrupt(_ cb: @escaping () -> Void) { session.onInterrupt = cb }
+    public func onConnectionChange(_ cb: @escaping (Bool) -> Void) { connectionCb = cb }
+    public var reportsConnection: Bool { true }
+    public var supportsMute: Bool { true }
+
+    /// Muted, silence goes out: the mic chunks are sent zeroed (the server's turn detection
+    /// keeps its timing) and the session stays up.
+    public func setMuted(_ muted: Bool) { micGate.muted = muted }
+
+    private func setSessionUp(_ up: Bool) {
+        guard up != sessionUp else { return }
+        sessionUp = up
+        connectionCb?(up)
+    }
 
     public func connect() async throws {
-        guard hasCredential else { throw GeminiLiveError.missingCredential }
         // Before the socket, before the permission prompt, before the mic: a
-        // refused credential must not open a device or a connection.
-        try InsecureCredential.check(
-            vendor: "GeminiLiveVoiceSource",
-            isEphemeral: credentialIsEphemeral,
-            allowInsecureApiKey: allowInsecureApiKey,
-            ephemeralShape: InsecureCredential.geminiShape,
-            mintHint: InsecureCredential.geminiMintHint)
+        // missing or refused credential must not open a device or a connection.
+        try await refreshEndpoint()
         await MainActor.run {
             wantConnected = true
             session.reset()
@@ -99,13 +144,15 @@ public final class GeminiLiveVoiceSource: VoiceSource {
                 let gate = micGate
                 try graph.start(inputRate: GeminiLiveSession.inputRate, outputRate: GeminiLiveSession.outputRate) {
                     samples in
-                    gate.send(GeminiLiveSession.micMessage(samples))
+                    let out = gate.muted ? [Float](repeating: 0, count: samples.count) : samples
+                    gate.send(GeminiLiveSession.micMessage(out))
                 }
                 audioStarted = true
                 for (samples, rate) in pendingAudio { graph.enqueue(samples, rate: rate) }
                 pendingAudio = []
                 micGate.socket = socket
                 startTimer()
+                setSessionUp(true)
             }
         } catch {
             await MainActor.run { disconnect() }
@@ -119,6 +166,25 @@ public final class GeminiLiveVoiceSource: VoiceSource {
 
     // MARK: - Socket
 
+    /// A token for the next socket; an `auth_tokens/…` name is the only accepted shape.
+    private func refreshEndpoint() async throws {
+        let token: String
+        do {
+            token = try await credentials.resolve(vendor: "GeminiLiveVoiceSource").credential
+        } catch CredentialError.fatal(let m) where m.hasSuffix("a credential is required") {
+            throw GeminiLiveError.missingCredential
+        }
+        try InsecureCredential.check(
+            vendor: "GeminiLiveVoiceSource", isEphemeral: InsecureCredential.isGeminiEphemeral(token),
+            ephemeralShape: InsecureCredential.geminiShape)
+        let auth = GeminiLiveSession.endpoint(credential: token)
+        let e =
+            endpointOverride.map {
+                GeminiLiveSession.Endpoint(url: $0.url, headers: $0.headers.merging(auth.headers) { _, token in token })
+            } ?? auth
+        await MainActor.run { endpoint = e }
+    }
+
     /// Opens the socket, sends `setup`, returns on `setupComplete`.
     private func openSocket() async throws {
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
@@ -126,6 +192,7 @@ public final class GeminiLiveVoiceSource: VoiceSource {
                 guard wantConnected else { return cont.resume(throwing: CancellationError()) }
                 setupWaiter = cont
                 var opened: LiveSocket?
+                guard let endpoint else { return cont.resume(throwing: GeminiLiveError.missingCredential) }
                 opened = socketFactory.open(
                     url: endpoint.url, headers: endpoint.headers,
                     onText: { [weak self] text in self?.onText(text) },
@@ -200,6 +267,9 @@ public final class GeminiLiveVoiceSource: VoiceSource {
         for attempt in 1...Self.reconnectAttempts {
             guard await MainActor.run(body: { wantConnected }) else { break }
             do {
+                // A token is single-use by default: resume with a new one when the
+                // caller can mint it (a pasted token is tried as is).
+                if credentials.canRefresh { try await refreshEndpoint() }
                 try await openSocket()
                 await MainActor.run { reconnecting = false }
                 return
@@ -207,6 +277,7 @@ public final class GeminiLiveVoiceSource: VoiceSource {
                 NSLog(
                     "Gemini Live reconnect %d/%d after %@ failed: %@", attempt, Self.reconnectAttempts, reason,
                     String(describing: error))
+                if (error as? CredentialError)?.isFatal == true || error is GeminiLiveError { break }
                 try? await Task.sleep(nanoseconds: UInt64(Self.reconnectDelay * 1e9))
             }
         }
@@ -236,6 +307,7 @@ public final class GeminiLiveVoiceSource: VoiceSource {
     }
 
     private func teardown() {
+        defer { setSessionUp(false) }
         wantConnected = false
         timer?.cancel()
         timer = nil
@@ -261,6 +333,20 @@ public final class GeminiLiveVoiceSource: VoiceSource {
             set {
                 lock.lock()
                 _socket = newValue
+                lock.unlock()
+            }
+        }
+
+        private var _muted = false
+        var muted: Bool {
+            get {
+                lock.lock()
+                defer { lock.unlock() }
+                return _muted
+            }
+            set {
+                lock.lock()
+                _muted = newValue
                 lock.unlock()
             }
         }

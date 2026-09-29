@@ -22,6 +22,8 @@ public final class LocalMicVoiceSource: VoiceSource {
     private var tapInstalled = false
     private var metricsCb: ((VoiceMetrics) -> Void)?
     private var stateCb: ((AgentState) -> Void)?
+    private var connectionCb: ((Bool) -> Void)?
+    private var muted = false
 
     public init(configureSession: Bool = true) {
         self.configureSession = configureSession
@@ -29,6 +31,11 @@ public final class LocalMicVoiceSource: VoiceSource {
 
     public func onMetrics(_ cb: @escaping (VoiceMetrics) -> Void) { metricsCb = cb }
     public func onStateChange(_ cb: @escaping (AgentState) -> Void) { stateCb = cb }
+    public func onConnectionChange(_ cb: @escaping (Bool) -> Void) { connectionCb = cb }
+    public var reportsConnection: Bool { true }
+    public var supportsMute: Bool { true }
+    /// Muted, the level reads 0 (the analysis never leaves the device either way).
+    public func setMuted(_ muted: Bool) { self.muted = muted }
 
     public func connect() async throws {
         await MainActor.run { stateCb?(.initializing) }
@@ -48,8 +55,10 @@ public final class LocalMicVoiceSource: VoiceSource {
     }
 
     public func disconnect() {
+        let was = timer != nil
         stop()
         stateCb?(.idle)
+        if was { connectionCb?(false) }
     }
 
     private func start() throws {
@@ -78,6 +87,7 @@ public final class LocalMicVoiceSource: VoiceSource {
         t.setEventHandler { [weak self] in self?.tick() }
         timer = t
         stateCb?(.listening)
+        connectionCb?(true)
         t.resume()
     }
 
@@ -95,7 +105,8 @@ public final class LocalMicVoiceSource: VoiceSource {
     }
 
     private func tick() {
-        spectrum.push(ring.drain())
+        let samples = ring.drain()
+        spectrum.push(muted ? [Float](repeating: 0, count: samples.count) : samples)
         let m = analysis.read(spectrum.byteFrequencyData())
         metricsCb?(m)
         stateCb?(m.level > speakingLevel ? .speaking : .listening)

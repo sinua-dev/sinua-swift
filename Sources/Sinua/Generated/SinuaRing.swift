@@ -14,6 +14,7 @@ public struct SinuaRing: View {
         case tracking = "tracking"
         case stepping = "stepping"
         case measuring = "measuring"
+        case talking = "talking"
     }
 
     public var pattern: Pattern
@@ -22,37 +23,53 @@ public struct SinuaRing: View {
     /// built-in voice-state behaviour for this pattern, under your own parameters; with a
     /// `spec` it picks that file's `states` entry. With a `voice`, it defaults to the source's state.
     public var state: String?
+    /// Space between the avatar's edge and the ring, as a fraction of the frame. Range 0...0.05 (fraction). Patterns: talking.
+    public var avatarGap: Double?
     /// Draw the value bar. Patterns: measuring.
     public var fill: Bool?
+    /// Ripples outside the ring: +1 travel outward (giving out, speaking), -1 come inward (taking in, listening), 0 none. The voice states set it. Range -1...1. Patterns: talking.
+    public var flow: Double?
     /// Gap between the indicator and the track, in stroke widths. Range 0...8 (x). Patterns: completing, loading, stepping, measuring.
     public var gap: Double?
     /// Ink hue in degrees; applies once saturation is above 0. Range 0...360 (deg).
     public var hue: Double?
     /// Degrees of hue added per ring (0 = one hue). Range -180...180 (deg). Patterns: tracking.
     public var hueStep: Double?
+    /// The ring's opacity when nobody is speaking (0 = hidden until there's a voice). Range 0...1 (fraction). Patterns: talking.
+    public var idleOpacity: Double?
     /// How present the whole visual is: 1 draws it as the pattern defines it, lower fades everything including its halos. A voice assistant rests below 1 when idle and comes to full ink when it listens. Range 0...1 (fraction).
     public var ink: Double?
+    /// Radius of the avatar the ring surrounds, as a fraction of the frame; nothing is drawn inside it. Range 0.1...0.44 (fraction). Patterns: talking.
+    public var innerRadius: Double?
     /// Draw a marker dot at the value. Patterns: measuring.
     public var marker: Bool?
     /// The most laps a ring value can draw. Range 1...10. Patterns: tracking.
     public var maxLaps: Double?
     /// How much of the ring is filled, 0 to 1. Range completing 0...1, tracking 0...3, stepping 0...1, measuring 0...1. Up to 4 values. Patterns: completing, tracking, stepping, measuring.
     public var progress: SinuaNumbers?
+    /// How much thicker the ring grows at full voice, outward only, as a fraction of the frame. Range 0...0.12 (fraction). Patterns: talking.
+    public var reach: Double?
     /// Concentric rings, outermost first. Range 1...4. Patterns: tracking.
     public var ringCount: Int?
+    /// How many ripples travel at once when flow is on. Range 0...4. Patterns: talking.
+    public var rippleCount: Int?
     /// How far the ink moves from grey toward the hue (0 = the grey ink). Range 0...1 (fraction).
     public var saturation: Double?
     /// Per-segment fill (0 to 1) when segments fill independently; overrides progress for the segments given. Range 0...1 (fraction). Up to 24 values. Patterns: stepping.
     public var segment: [Double]?
     /// Number of equal segments. Range 1...24. Patterns: stepping.
     public var segmentCount: Double?
+    /// A brighter arc that circles the ring (thinking, connecting); 0 = off. Range 0...1 (fraction). Patterns: talking.
+    public var shimmer: Double?
     /// Gap between rings, in stroke widths. Range 0...2 (x). Patterns: tracking.
     public var spacing: Double?
-    /// Stroke width as a fraction of the frame. Range 0.01...0.4 (fraction).
+    /// Stroke width as a fraction of the frame. Range 0.01...0.4 (fraction). Patterns: completing, loading, tracking, stepping, measuring.
     public var strokeWidth: Double?
     /// Total arc of the gauge in degrees; the opening is centred at the bottom. Range 90...330 (deg). Patterns: measuring.
     public var sweep: Double?
-    /// Opacity of the faint track behind the indicator (0 = none). Range 0...1 (fraction).
+    /// The ring's resting stroke width, as a fraction of the frame. Range 0.004...0.1 (fraction). Patterns: talking.
+    public var thickness: Double?
+    /// Opacity of the faint track behind the indicator (0 = none). Range 0...1 (fraction). Patterns: completing, loading, tracking, stepping, measuring.
     public var trackOpacity: Double?
     public var color: SinuaColor?
     public var glow: SinuaGlow?
@@ -82,21 +99,29 @@ public struct SinuaRing: View {
         size: SinuaSize = .s64,
         state: String? = nil,
         inputs: [String: Double] = [:],
+        avatarGap: Double? = nil,
         fill: Bool? = nil,
+        flow: Double? = nil,
         gap: Double? = nil,
         hue: Double? = nil,
         hueStep: Double? = nil,
+        idleOpacity: Double? = nil,
         ink: Double? = nil,
+        innerRadius: Double? = nil,
         marker: Bool? = nil,
         maxLaps: Double? = nil,
         progress: SinuaNumbers? = nil,
+        reach: Double? = nil,
         ringCount: Int? = nil,
+        rippleCount: Int? = nil,
         saturation: Double? = nil,
         segment: [Double]? = nil,
         segmentCount: Double? = nil,
+        shimmer: Double? = nil,
         spacing: Double? = nil,
         strokeWidth: Double? = nil,
         sweep: Double? = nil,
+        thickness: Double? = nil,
         trackOpacity: Double? = nil,
         color: SinuaColor? = nil,
         glow: SinuaGlow? = nil,
@@ -121,21 +146,29 @@ public struct SinuaRing: View {
         self.size = size
         self.state = state
         self.inputs = inputs
+        self.avatarGap = avatarGap
         self.fill = fill
+        self.flow = flow
         self.gap = gap
         self.hue = hue
         self.hueStep = hueStep
+        self.idleOpacity = idleOpacity
         self.ink = ink
+        self.innerRadius = innerRadius
         self.marker = marker
         self.maxLaps = maxLaps
         self.progress = progress
+        self.reach = reach
         self.ringCount = ringCount
+        self.rippleCount = rippleCount
         self.saturation = saturation
         self.segment = segment
         self.segmentCount = segmentCount
+        self.shimmer = shimmer
         self.spacing = spacing
         self.strokeWidth = strokeWidth
         self.sweep = sweep
+        self.thickness = thickness
         self.trackOpacity = trackOpacity
         self.color = color
         self.glow = glow
@@ -188,24 +221,32 @@ public struct SinuaRing: View {
     /// The engine overrides these props produce (unset props keep the pattern's values).
     public func overrides() -> [String: Double] {
         var o: [String: Double] = [:]
+        if let v = avatarGap { o["avatarGap"] = v }
         if let v = fill { o["fill"] = v ? 1 : 0 }
+        if let v = flow { o["flow"] = v }
         if let v = gap { o["gap"] = v }
         if let v = hue { o["hue"] = v }
         if let v = hueStep { o["hueStep"] = v }
+        if let v = idleOpacity { o["idleOpacity"] = v }
         if let v = ink { o["ink"] = v }
+        if let v = innerRadius { o["innerRadius"] = v }
         if let v = marker { o["marker"] = v ? 1 : 0 }
         if let v = maxLaps { o["maxLaps"] = v }
         if let v = progress {
             let xs: [Double] = { switch v { case .value(let x): return [x]; case .list(let l): return l } }()
             if pattern.rawValue == "tracking" { for (key, x) in zip(["progress0", "progress1", "progress2", "progress3"], xs) { o[key] = x } } else if let x = xs.first { o["progress"] = x }
         }
+        if let v = reach { o["reach"] = v }
         if let v = ringCount { o["ringCount"] = Double(v) }
+        if let v = rippleCount { o["rippleCount"] = Double(v) }
         if let v = saturation { o["saturation"] = v }
         if let v = segment { for (key, x) in zip(["segment0", "segment1", "segment2", "segment3", "segment4", "segment5", "segment6", "segment7", "segment8", "segment9", "segment10", "segment11", "segment12", "segment13", "segment14", "segment15", "segment16", "segment17", "segment18", "segment19", "segment20", "segment21", "segment22", "segment23"], v) { o[key] = x } }
         if let v = segmentCount { o["segmentCount"] = v }
+        if let v = shimmer { o["shimmer"] = v }
         if let v = spacing { o["spacing"] = v }
         if let v = strokeWidth { o["strokeWidth"] = v }
         if let v = sweep { o["sweep"] = v }
+        if let v = thickness { o["thickness"] = v }
         if let v = trackOpacity { o["trackOpacity"] = v }
         color?.write(into: &o)
         glow?.write(into: &o)

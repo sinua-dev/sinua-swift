@@ -1,58 +1,34 @@
 import Foundation
 
-/// The one rule about long-lived API keys, shared by every adapter that can be
-/// handed one. The Swift port of `packages/voice/src/insecureCredential.ts`;
-/// the message text is deliberately identical on all three platforms.
+/// The one rule about long-lived API keys, shared by every adapter that could be
+/// handed one: **a raw key is always refused.** The Swift port of
+/// `packages/voice/src/insecureCredential.ts`; the message text is identical on
+/// all three platforms.
 ///
 /// A production credential is short-lived and minted server-side: OpenAI's
 /// `ek_…` (`POST /v1/realtime/client_secrets`) or Gemini's `auth_tokens/…`
-/// (`POST /v1beta/auth_tokens`). A raw account key is a different object --
-/// long-lived, unscoped and billable -- so it is **refused** unless the caller
-/// opts in with `allowInsecureApiKey`. Prior art for the shape:
-/// `openai-agents-js` refuses a raw key in a browser unless `useInsecureApiKey`
-/// is set.
+/// (`POST /v1beta/auth_tokens`). A raw account key is long-lived, unscoped and
+/// billable. The `allowInsecureApiKey` opt-in is gone: `npx @sinua/voice
+/// dev-proxy` mints real short-lived credentials on localhost, and
+/// `@sinua/voice/server` does it in a backend.
 ///
-/// Placement rules this type exists to keep consistent:
-///
-/// - the check runs inside `connect()`, **never an initialiser** -- the Studio
-///   builds a source outside its `do`/`catch`, so a throwing init would take
-///   the panel down instead of showing the error inline;
-/// - it runs before the microphone, the audio graph and the socket, so a
-///   refused credential never opens a device or a connection.
+/// Placement: the check runs inside `connect()` (never an initialiser -- the
+/// Studio builds a source outside its `do`/`catch`), on every credential a
+/// source resolves, before the permission prompt, the microphone and the socket.
 public enum InsecureCredential {
-    /// Raised by `check` when a raw key is used without the opt-in.
-    public struct Refused: LocalizedError, Equatable {
-        public let message: String
-        public var errorDescription: String? { message }
-        public init(message: String) { self.message = message }
+    /// The refusal message for anything that isn't the short-lived shape, or `nil`.
+    public static func refusal(vendor: String, isEphemeral: Bool, ephemeralShape: String) -> String? {
+        if isEphemeral { return nil }
+        return "\(vendor): expected a short-lived credential (\(ephemeralShape)); refusing what looks like a raw, "
+            + "long-lived API key. Mint one in your backend with @sinua/voice/server, or run "
+            + "`npx @sinua/voice dev-proxy` and pass `credentialUrl`."
     }
 
-    /// Throws `Refused` for a raw key used without the opt-in; returns normally
-    /// when the connect may go ahead. When a raw key *is* allowed, this warns
-    /// once per call, so a local demo can't quietly turn into a deployment.
-    ///
-    /// - Parameter warn: the sink for that warning; overridable so tests can
-    ///   observe it without printing.
-    public static func check(
-        vendor: String,
-        isEphemeral: Bool,
-        allowInsecureApiKey: Bool,
-        ephemeralShape: String,
-        mintHint: String,
-        warn: (String) -> Void = { FileHandle.standardError.write(Data(($0 + "\n").utf8)) }
-    ) throws {
-        if isEphemeral { return }
-        guard allowInsecureApiKey else {
-            throw Refused(
-                message:
-                    "\(vendor): refusing a raw, long-lived API key. Pass a short-lived credential "
-                    + "(\(ephemeralShape)) minted by your own backend (\(mintHint)). "
-                    + "For a local demo only, set `allowInsecureApiKey: true`.")
+    /// Throws a fatal `CredentialError` for anything that isn't the short-lived shape.
+    public static func check(vendor: String, isEphemeral: Bool, ephemeralShape: String) throws {
+        if let message = refusal(vendor: vendor, isEphemeral: isEphemeral, ephemeralShape: ephemeralShape) {
+            throw CredentialError.fatal(message)
         }
-        warn(
-            "\(vendor): connecting with a raw, long-lived API key because `allowInsecureApiKey` "
-                + "is set. That key is exposed on the device -- this is for local demos, not for "
-                + "shipping. In a product, send a \(ephemeralShape) minted by your backend (\(mintHint)).")
     }
 
     /// `auth_tokens/…` is Gemini's ephemeral shape.
@@ -66,7 +42,5 @@ public enum InsecureCredential {
     }
 
     public static let geminiShape = "auth_tokens/…"
-    public static let geminiMintHint = "POST https://generativelanguage.googleapis.com/v1beta/auth_tokens"
     public static let openAIShape = "ek_…"
-    public static let openAIMintHint = "POST https://api.openai.com/v1/realtime/client_secrets"
 }

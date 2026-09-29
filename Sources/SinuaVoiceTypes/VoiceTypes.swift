@@ -41,10 +41,26 @@ public protocol VoiceSource: AnyObject {
     func onStateChange(_ cb: @escaping (AgentState) -> Void)
     /// Optional barge-in moment (see Web's `VoiceSource.onInterrupt`); a no-op by default.
     func onInterrupt(_ cb: @escaping () -> Void)
+    /// Optional: mute or unmute the microphone (see Web's `VoiceSource.setMuted`). Silence
+    /// goes out and the session stays up. A no-op by default; `supportsMute` says whether it
+    /// does anything. Call it through `SharedVoiceSource` so views show the muted cue.
+    func setMuted(_ muted: Bool)
+    /// Whether `setMuted` does anything. False by default.
+    var supportsMute: Bool { get }
+    /// Optional: `true` once the session is up, `false` when it ends -- `disconnect()`, a
+    /// remote hang-up, a drop the source gave up on. An agent can be `idle` while connected,
+    /// so the state can't say this. A no-op by default; see `reportsConnection`.
+    func onConnectionChange(_ cb: @escaping (Bool) -> Void)
+    /// Whether `onConnectionChange` ever fires. False by default.
+    var reportsConnection: Bool { get }
 }
 
 extension VoiceSource {
     public func onInterrupt(_ cb: @escaping () -> Void) {}
+    public func setMuted(_ muted: Bool) {}
+    public var supportsMute: Bool { false }
+    public func onConnectionChange(_ cb: @escaping (Bool) -> Void) {}
+    public var reportsConnection: Bool { false }
 }
 
 /// `primitives::audio_band`'s cap: keys `audioBand0`...`audioBand15` exist, nothing beyond.

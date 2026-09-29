@@ -52,18 +52,15 @@ public final class GeminiLiveSession {
         }
     }
 
-    /// `auth_tokens/…` (ephemeral, minted by the app's backend) -> the
-    /// Constrained method with `Authorization: Token …`; anything else is a raw
-    /// API key (dev only) in `x-goog-api-key` -- both as headers, the way
+    /// An `auth_tokens/…` ephemeral token (minted by the app's backend) -> the
+    /// Constrained method with `Authorization: Token …` -- a header, the way
     /// Google's own python-genai `live.py` connects, so no secret is in the URL.
+    /// There is no raw-key path: `GeminiLiveVoiceSource` refuses anything else.
     public static func endpoint(credential: String) -> Endpoint {
         let c = credential.trimmingCharacters(in: .whitespacesAndNewlines)
         let base = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService."
-        if c.hasPrefix("auth_tokens/") {
-            return Endpoint(
-                url: URL(string: base + "BidiGenerateContentConstrained")!, headers: ["Authorization": "Token \(c)"])
-        }
-        return Endpoint(url: URL(string: base + "BidiGenerateContent")!, headers: ["x-goog-api-key": c])
+        return Endpoint(
+            url: URL(string: base + "BidiGenerateContentConstrained")!, headers: ["Authorization": "Token \(c)"])
     }
 
     // MARK: - Messages

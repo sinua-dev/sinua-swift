@@ -4,16 +4,12 @@
 import SwiftUI
 import SinuaVoiceTypes
 
-/// Signal, typed: `SinuaSignal(pattern: .signaling)` plus any of its parameters.
+/// Edge, typed: `SinuaEdge(pattern: .framing)` plus any of its parameters.
 /// A thin wrapper over `SinuaView` (no painting of its own): typed props become engine overrides,
-/// or `init(spec:)` plays an FX Spec that must describe a signal.
-public struct SinuaSignal: View {
+/// or `init(spec:)` plays an FX Spec that must describe a edge.
+public struct SinuaEdge: View {
     public enum Pattern: String, CaseIterable, Sendable {
-        case signaling = "signaling"
-        case waveform = "waveform"
-        case scrolling = "scrolling"
-        case metering = "metering"
-        case playing = "playing"
+        case framing = "framing"
     }
 
     public var pattern: Pattern
@@ -22,46 +18,26 @@ public struct SinuaSignal: View {
     /// built-in voice-state behaviour for this pattern, under your own parameters; with a
     /// `spec` it picks that file's `states` entry. With a `voice`, it defaults to the source's state.
     public var state: String?
-    /// Peak wave height as a fraction of the frame. Range 0...0.5 (fraction). Patterns: waveform.
-    public var amplitude: Double?
-    /// Number of level bars. Range signaling 1...64, playing 0...128. Patterns: signaling, playing.
-    public var barCount: Int?
-    /// Bar width as a fraction of each slot. Range 0.05...1 (fraction). Patterns: signaling, scrolling, playing.
-    public var barWidth: Double?
-    /// LED columns. Range 1...32. Patterns: metering.
-    public var columnCount: Int?
-    /// The recorded clip's loudness, oldest first, 0 to 1 per value (up to 64; resample longer clips). Without it a fixed sample message is drawn. Range 0...1 (fraction). Up to 64 values. Patterns: playing.
-    public var envelope: [Double]?
-    /// Width of the fade at the edges, as a fraction of the frame. Range 0.01...1 (fraction). Patterns: scrolling.
-    public var fadeWidth: Double?
-    /// Ink hue in degrees; applies once saturation is above 0. Range 0...360 (deg).
+    /// Corner radius as a fraction of the box's shorter side; match your screen's or container's corners (0.12 is about a phone screen). Range 0...0.5 (fraction).
+    public var cornerRadius: Double?
+    /// How fast the colours travel round the frame, in turns per second (negative = the other way). Range -2...2.
+    public var flowSpeed: Double?
+    /// Base hue in degrees. Range 0...360 (deg).
     public var hue: Double?
+    /// How far the hue varies round the frame, in degrees (0 = one colour). Range 0...360 (deg).
+    public var hueSpread: Double?
+    /// The rim's opacity with no voice (0 = hidden until there's a voice). Range 0...1 (fraction).
+    public var idleOpacity: Double?
     /// How present the whole visual is: 1 draws it as the pattern defines it, lower fades everything including its halos. A voice assistant rests below 1 when idle and comes to full ink when it listens. Range 0...1 (fraction).
     public var ink: Double?
-    /// Stacked waveform layers (fainter behind). Range 1...6. Patterns: waveform.
-    public var layerCount: Int?
-    /// LEDs per column. Range 2...24. Patterns: metering.
-    public var ledCount: Int?
-    /// LED size as a fraction of its cell. Range 0.2...1 (fraction). Patterns: metering.
-    public var ledSize: Double?
-    /// Stroke width as a fraction of the frame. Range 0.005...0.2 (fraction). Patterns: waveform.
-    public var lineWidth: Double?
-    /// Height of a silent bar, as a fraction of full height. Range 0...1 (fraction). Patterns: signaling, scrolling, playing.
-    public var minHeight: Double?
-    /// Level of a silent column. Range 0...1 (fraction). Patterns: metering.
-    public var minLevel: Double?
-    /// Columns grow out from the middle row instead of rising from the bottom. Patterns: metering.
-    public var mirror: Bool?
-    /// Draw a thin line at the playback position. Patterns: playing.
-    public var playhead: Bool?
-    /// Points along each waveform line. Range 2...512. Patterns: waveform.
-    public var pointCount: Int?
-    /// Playback position, 0 to 1: bars before it are played (full ink), the rest dimmed. Range 0...1 (fraction). Patterns: playing.
-    public var progress: Double?
-    /// How far the ink moves from grey toward the hue (0 = the grey ink). Range 0...1 (fraction).
+    /// How much wider the rim grows at full voice, inward only, as a fraction of the shorter side. Range 0...0.2 (fraction).
+    public var reach: Double?
+    /// How colourful the rim is (0 = the grey ink). Colourful by default: a grey rim reads as a border, not a glow. Range 0...1 (fraction).
     public var saturation: Double?
-    /// Opacity of the bars not played yet, relative to the played ones. Range 0...1 (fraction). Patterns: playing.
-    public var unplayedOpacity: Double?
+    /// A bright segment that circles the frame (thinking); 0 = off. Range 0...1 (fraction).
+    public var shimmer: Double?
+    /// The rim's resting width, as a fraction of the box's shorter side. Range 0.002...0.2 (fraction).
+    public var thickness: Double?
     public var color: SinuaColor?
     public var glow: SinuaGlow?
     public var gradient: SinuaGradient?
@@ -90,26 +66,16 @@ public struct SinuaSignal: View {
         size: SinuaSize = .s64,
         state: String? = nil,
         inputs: [String: Double] = [:],
-        amplitude: Double? = nil,
-        barCount: Int? = nil,
-        barWidth: Double? = nil,
-        columnCount: Int? = nil,
-        envelope: [Double]? = nil,
-        fadeWidth: Double? = nil,
+        cornerRadius: Double? = nil,
+        flowSpeed: Double? = nil,
         hue: Double? = nil,
+        hueSpread: Double? = nil,
+        idleOpacity: Double? = nil,
         ink: Double? = nil,
-        layerCount: Int? = nil,
-        ledCount: Int? = nil,
-        ledSize: Double? = nil,
-        lineWidth: Double? = nil,
-        minHeight: Double? = nil,
-        minLevel: Double? = nil,
-        mirror: Bool? = nil,
-        playhead: Bool? = nil,
-        pointCount: Int? = nil,
-        progress: Double? = nil,
+        reach: Double? = nil,
         saturation: Double? = nil,
-        unplayedOpacity: Double? = nil,
+        shimmer: Double? = nil,
+        thickness: Double? = nil,
         color: SinuaColor? = nil,
         glow: SinuaGlow? = nil,
         gradient: SinuaGradient? = nil,
@@ -133,26 +99,16 @@ public struct SinuaSignal: View {
         self.size = size
         self.state = state
         self.inputs = inputs
-        self.amplitude = amplitude
-        self.barCount = barCount
-        self.barWidth = barWidth
-        self.columnCount = columnCount
-        self.envelope = envelope
-        self.fadeWidth = fadeWidth
+        self.cornerRadius = cornerRadius
+        self.flowSpeed = flowSpeed
         self.hue = hue
+        self.hueSpread = hueSpread
+        self.idleOpacity = idleOpacity
         self.ink = ink
-        self.layerCount = layerCount
-        self.ledCount = ledCount
-        self.ledSize = ledSize
-        self.lineWidth = lineWidth
-        self.minHeight = minHeight
-        self.minLevel = minLevel
-        self.mirror = mirror
-        self.playhead = playhead
-        self.pointCount = pointCount
-        self.progress = progress
+        self.reach = reach
         self.saturation = saturation
-        self.unplayedOpacity = unplayedOpacity
+        self.shimmer = shimmer
+        self.thickness = thickness
         self.color = color
         self.glow = glow
         self.gradient = gradient
@@ -173,7 +129,7 @@ public struct SinuaSignal: View {
         self.onFrame = onFrame
     }
 
-    /// Plays an FX Spec (JSON). It must describe a signal (`"object": "signal"`): any other
+    /// Plays an FX Spec (JSON). It must describe a edge (`"object": "edge"`): any other
     /// object draws nothing and calls `onError` (without one, a debug build stops at an assertion).
     /// `state` picks the spec's lifecycle state.
     public init(
@@ -192,7 +148,7 @@ public struct SinuaSignal: View {
         onError: ((SinuaSpecError) -> Void)? = nil,
         onFrame: ((FxFrameStats) -> Void)? = nil
     ) {
-        self.init(pattern: .signaling, voice: voice, voiceOverrides: voiceOverrides, theme: theme, paused: paused,
+        self.init(pattern: .framing, voice: voice, voiceOverrides: voiceOverrides, theme: theme, paused: paused,
                   reducedMotion: reducedMotion, accessibilityLabel: accessibilityLabel, maxFps: maxFps, lowPower: lowPower, onFrame: onFrame)
         self.spec = spec
         self.state = state
@@ -204,26 +160,16 @@ public struct SinuaSignal: View {
     /// The engine overrides these props produce (unset props keep the pattern's values).
     public func overrides() -> [String: Double] {
         var o: [String: Double] = [:]
-        if let v = amplitude { o["amplitude"] = v }
-        if let v = barCount { o["barCount"] = Double(v) }
-        if let v = barWidth { o["barWidth"] = v }
-        if let v = columnCount { o["columnCount"] = Double(v) }
-        if let v = envelope { for (key, x) in zip(["envelope0", "envelope1", "envelope2", "envelope3", "envelope4", "envelope5", "envelope6", "envelope7", "envelope8", "envelope9", "envelope10", "envelope11", "envelope12", "envelope13", "envelope14", "envelope15", "envelope16", "envelope17", "envelope18", "envelope19", "envelope20", "envelope21", "envelope22", "envelope23", "envelope24", "envelope25", "envelope26", "envelope27", "envelope28", "envelope29", "envelope30", "envelope31", "envelope32", "envelope33", "envelope34", "envelope35", "envelope36", "envelope37", "envelope38", "envelope39", "envelope40", "envelope41", "envelope42", "envelope43", "envelope44", "envelope45", "envelope46", "envelope47", "envelope48", "envelope49", "envelope50", "envelope51", "envelope52", "envelope53", "envelope54", "envelope55", "envelope56", "envelope57", "envelope58", "envelope59", "envelope60", "envelope61", "envelope62", "envelope63"], v) { o[key] = x } }
-        if let v = fadeWidth { o["fadeWidth"] = v }
+        if let v = cornerRadius { o["cornerRadius"] = v }
+        if let v = flowSpeed { o["flowSpeed"] = v }
         if let v = hue { o["hue"] = v }
+        if let v = hueSpread { o["hueSpread"] = v }
+        if let v = idleOpacity { o["idleOpacity"] = v }
         if let v = ink { o["ink"] = v }
-        if let v = layerCount { o["layerCount"] = Double(v) }
-        if let v = ledCount { o["ledCount"] = Double(v) }
-        if let v = ledSize { o["ledSize"] = v }
-        if let v = lineWidth { o["lineWidth"] = v }
-        if let v = minHeight { o["minHeight"] = v }
-        if let v = minLevel { o["minLevel"] = v }
-        if let v = mirror { o["mirror"] = v ? 1 : 0 }
-        if let v = playhead { o["playhead"] = v ? 1 : 0 }
-        if let v = pointCount { o["pointCount"] = Double(v) }
-        if let v = progress { o["progress"] = v }
+        if let v = reach { o["reach"] = v }
         if let v = saturation { o["saturation"] = v }
-        if let v = unplayedOpacity { o["unplayedOpacity"] = v }
+        if let v = shimmer { o["shimmer"] = v }
+        if let v = thickness { o["thickness"] = v }
         color?.write(into: &o)
         glow?.write(into: &o)
         gradient?.write(into: &o)
@@ -237,15 +183,15 @@ public struct SinuaSignal: View {
 
     /// Non-nil when `spec` describes another object.
     public var specError: SinuaSpecError? {
-        guard let spec, let found = sinuaSpecObject(spec), found != "signal" else { return nil }
-        return SinuaSpecError(expected: "signal", found: found)
+        guard let spec, let found = sinuaSpecObject(spec), found != "edge" else { return nil }
+        return SinuaSpecError(expected: "edge", found: found)
     }
 
     public var body: some View {
         if let spec {
             if let error = specError {
                 Color.clear.onAppear {
-                    if let onError { onError(error) } else { assertionFailure("SinuaSignal: \(error)") }
+                    if let onError { onError(error) } else { assertionFailure("SinuaEdge: \(error)") }
                 }
             } else {
                 SinuaView(spec: spec, voice: voice, voiceOverrides: voiceOverrides, state: state, inputs: inputs,

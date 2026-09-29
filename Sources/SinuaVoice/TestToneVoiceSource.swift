@@ -13,6 +13,8 @@ public final class TestToneVoiceSource: VoiceSource {
     private var timer: DispatchSourceTimer?
     private var metricsCb: ((VoiceMetrics) -> Void)?
     private var stateCb: ((AgentState) -> Void)?
+    private var connectionCb: ((Bool) -> Void)?
+    private var muted = false
 
     public init(sampleRate: Double = 48_000) {
         self.sampleRate = sampleRate
@@ -21,6 +23,11 @@ public final class TestToneVoiceSource: VoiceSource {
 
     public func onMetrics(_ cb: @escaping (VoiceMetrics) -> Void) { metricsCb = cb }
     public func onStateChange(_ cb: @escaping (AgentState) -> Void) { stateCb = cb }
+    public func onConnectionChange(_ cb: @escaping (Bool) -> Void) { connectionCb = cb }
+    public var reportsConnection: Bool { true }
+    public var supportsMute: Bool { true }
+    /// Muted, the tone stands in for a muted mic: the level reads 0.
+    public func setMuted(_ muted: Bool) { self.muted = muted }
 
     public func connect() async throws {
         await MainActor.run {
@@ -33,18 +40,23 @@ public final class TestToneVoiceSource: VoiceSource {
             t.setEventHandler { [weak self] in self?.tick() }
             timer = t
             stateCb?(.listening)
+            connectionCb?(true)
             t.resume()
         }
     }
 
     public func disconnect() {
+        let was = timer != nil
         timer?.cancel()
         timer = nil
         stateCb?(.idle)
+        if was { connectionCb?(false) }
     }
 
     private func tick() {
-        spectrum.push(generator.next(Int(sampleRate / Self.updateHz)))
+        let n = Int(sampleRate / Self.updateHz)
+        let samples = generator.next(n)
+        spectrum.push(muted ? [Float](repeating: 0, count: n) : samples)
         let m = analysis.read(spectrum.byteFrequencyData())
         metricsCb?(m)
         stateCb?(m.level > speakingLevel ? .speaking : .listening)

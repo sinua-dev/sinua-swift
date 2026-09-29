@@ -17,16 +17,19 @@ import SinuaVoice
 /// The agent's input format must be PCM. No reconnect: a conversation isn't
 /// resumable; a close (1000 = the agent ended it) goes to `idle`.
 ///
-/// Credentials: a **public** agent's `agent_id` (no secret involved), or a
-/// `wss://…` **signed URL** for a private agent, minted by your backend
-/// (`GET /v1/convai/conversation/get-signed-url`, valid 15 minutes).
+/// Credentials: the shared contract (`CredentialSource`). A **public** agent's
+/// `agent_id` (no secret involved), or a `wss://…` **signed URL** for a private
+/// agent, minted by your backend (`signElevenLabsUrl` in `@sinua/voice/server`,
+/// or `npx @sinua/voice dev-proxy`; valid 15 minutes). With `credentialUrl` or a
+/// provider, every `connect()` signs a new one.
 ///
 /// Not verified against the live service yet (docs/audio-pipeline.md).
 public final class ElevenLabsVoiceSource: VoiceSource {
     public static let updateHz = 30.0
     static let metadataTimeout: TimeInterval = 15
 
-    private let url: URL?
+    private let credentials: CredentialSource
+    private let endpoint: URL?
     private let overrides: [String: Any]?
     private let session = ElevenLabsSession()
     private let graph: PcmAudioGraph
@@ -43,10 +46,30 @@ public final class ElevenLabsVoiceSource: VoiceSource {
     private var metricsCb: ((VoiceMetrics) -> Void)?
 
     /// - Parameters:
-    ///   - credential: a public agent id, or a `wss://` signed URL.
+    ///   - credential: `.url(…)` / `.provider { … }` for a signed URL per connect, or
+    ///     `.value(…)` for a public agent id or one signed URL.
     ///   - overrides: `conversation_config_override` (if the agent allows overrides).
     ///   - endpoint: override the URL (a relay, or tests); the credential is ignored then.
     public init(
+        credential: CredentialSource,
+        overrides: [String: Any]? = nil,
+        endpoint: URL? = nil,
+        device: PcmAudioDevice = AVPcmAudioDevice(),
+        socketFactory: LiveSocketFactory = URLSessionLiveSocketFactory(),
+        requestPermission: @escaping () async -> Bool = AVPcmAudioDevice.requestPermission,
+        clock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
+    ) {
+        credentials = credential
+        self.endpoint = endpoint
+        self.overrides = overrides
+        graph = PcmAudioGraph(device: device)
+        self.socketFactory = socketFactory
+        self.requestPermission = requestPermission
+        self.clock = clock
+    }
+
+    /// A public agent id, or one signed `wss://` URL.
+    public convenience init(
         credential: String,
         overrides: [String: Any]? = nil,
         endpoint: URL? = nil,
@@ -55,21 +78,54 @@ public final class ElevenLabsVoiceSource: VoiceSource {
         requestPermission: @escaping () async -> Bool = AVPcmAudioDevice.requestPermission,
         clock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
     ) {
-        let c = credential.trimmingCharacters(in: .whitespacesAndNewlines)
-        url = endpoint ?? (c.isEmpty ? nil : ElevenLabsSession.endpoint(credential: c))
-        self.overrides = overrides
-        graph = PcmAudioGraph(device: device)
-        self.socketFactory = socketFactory
-        self.requestPermission = requestPermission
-        self.clock = clock
+        self.init(
+            credential: .value(credential), overrides: overrides, endpoint: endpoint, device: device,
+            socketFactory: socketFactory, requestPermission: requestPermission, clock: clock)
     }
+
+    /// Your backend's endpoint, answering `{ credential: "wss://…", expiresAt? }`; asked on every connect.
+    public convenience init(credentialUrl: URL, overrides: [String: Any]? = nil) {
+        self.init(credential: .url(credentialUrl), overrides: overrides)
+    }
+
+    private var connectionCb: ((Bool) -> Void)?
+    private var sessionUp = false
 
     public func onMetrics(_ cb: @escaping (VoiceMetrics) -> Void) { metricsCb = cb }
     public func onStateChange(_ cb: @escaping (AgentState) -> Void) { session.onState = cb }
     public func onInterrupt(_ cb: @escaping () -> Void) { session.onInterrupt = cb }
+    public func onConnectionChange(_ cb: @escaping (Bool) -> Void) { connectionCb = cb }
+    public var reportsConnection: Bool { true }
+    public var supportsMute: Bool { true }
+
+    /// Muted, silence goes out: the mic chunks are sent zeroed (the server's turn detection
+    /// keeps its timing) and the session stays up.
+    public func setMuted(_ muted: Bool) { micGate.muted = muted }
+
+    private func setSessionUp(_ up: Bool) {
+        guard up != sessionUp else { return }
+        sessionUp = up
+        connectionCb?(up)
+    }
 
     public func connect() async throws {
-        guard let url else { throw ElevenLabsError.missingCredential }
+        // Before the socket and the prompt: a failed signing must not open a
+        // device. A signed URL is valid for 15 minutes, so each connect gets one.
+        let url: URL
+        if let endpoint {
+            url = endpoint
+        } else {
+            let credential: String
+            do {
+                credential = try await credentials.resolve(vendor: "ElevenLabsVoiceSource").credential
+            } catch CredentialError.fatal(let m) where m.hasSuffix("a credential is required") {
+                throw ElevenLabsError.missingCredential
+            }
+            guard let u = ElevenLabsSession.endpoint(credential: credential) else {
+                throw ElevenLabsError.missingCredential
+            }
+            url = u
+        }
         await MainActor.run {
             wantConnected = true
             session.connecting(now: clock())
@@ -86,11 +142,13 @@ public final class ElevenLabsVoiceSource: VoiceSource {
             try await MainActor.run {
                 let gate = micGate
                 try graph.start(inputRate: input.rate, outputRate: output.rate) { samples in
-                    gate.send(ElevenLabsSession.micMessage(samples))
+                    let out = gate.muted ? [Float](repeating: 0, count: samples.count) : samples
+                    gate.send(ElevenLabsSession.micMessage(out))
                 }
                 apply(session.graphStarted(output: output, now: clock()))
                 micGate.socket = socket
                 startTimer()
+                setSessionUp(true)
             }
         } catch {
             await MainActor.run { disconnect() }
@@ -188,6 +246,7 @@ public final class ElevenLabsVoiceSource: VoiceSource {
     }
 
     private func teardown() {
+        defer { setSessionUp(false) }
         wantConnected = false
         timer?.cancel()
         timer = nil
@@ -211,6 +270,20 @@ public final class ElevenLabsVoiceSource: VoiceSource {
             set {
                 lock.lock()
                 _socket = newValue
+                lock.unlock()
+            }
+        }
+
+        private var _muted = false
+        var muted: Bool {
+            get {
+                lock.lock()
+                defer { lock.unlock() }
+                return _muted
+            }
+            set {
+                lock.lock()
+                _muted = newValue
                 lock.unlock()
             }
         }

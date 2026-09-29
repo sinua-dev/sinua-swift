@@ -24,7 +24,7 @@ public struct SinuaBeacon: View {
     public var state: String?
     /// Location accuracy 0 to 1: the halo shrinks as it rises. Range 0...1 (fraction). Patterns: locating.
     public var accuracy: Double?
-    /// Contacts that light up as the sweep passes. Range 0...12. Patterns: scanning.
+    /// How many targets were found (e.g. nearby devices): one blip each, lit as the sweep passes. 0 = still looking. Range 0...12. Patterns: scanning.
     public var blipCount: Int?
     /// Waves stay lit as they build up instead of travelling. Patterns: broadcasting.
     public var cumulative: Bool?
