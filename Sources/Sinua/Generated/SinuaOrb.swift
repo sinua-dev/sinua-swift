@@ -189,6 +189,15 @@ public struct SinuaOrb: View {
     public var maxFps: Double?
     public var lowPower: FxLowPower
     public var onFrame: ((FxFrameStats) -> Void)?
+    /// Words per state for the accessible name and announcements ("listening" -> "Coach is listening").
+    public var labels: [String: String]
+    /// Speak state changes to VoiceOver (polite, rate-limited). Default: the spec's, else true.
+    public var announce: Bool?
+    /// A light tap when the agent starts listening. Off by default; never under reduced motion.
+    public var haptics: Bool
+    /// A one-shot effect to play (docs/fx-view.md, *One-shot effects*); each new trigger plays once.
+    public var effect: SinuaEffectTrigger?
+    private var rules = true
     private var spec: String?
     public var inputs: [String: Double] = [:]
     private var voiceLevelInput: String?
@@ -284,7 +293,11 @@ public struct SinuaOrb: View {
         accessibilityLabel: String? = nil,
         maxFps: Double? = nil,
         lowPower: FxLowPower = .auto,
-        onFrame: ((FxFrameStats) -> Void)? = nil
+        onFrame: ((FxFrameStats) -> Void)? = nil,
+        labels: [String: String] = [:],
+        announce: Bool? = nil,
+        haptics: Bool = false,
+        effect: SinuaEffectTrigger? = nil
     ) {
         self.pattern = pattern
         self.size = size
@@ -376,6 +389,10 @@ public struct SinuaOrb: View {
         self.maxFps = maxFps
         self.lowPower = lowPower
         self.onFrame = onFrame
+        self.labels = labels
+        self.announce = announce
+        self.haptics = haptics
+        self.effect = effect
     }
 
     /// Plays an FX Spec (JSON). It must describe a orb (`"object": "orb"`): any other
@@ -395,10 +412,17 @@ public struct SinuaOrb: View {
         maxFps: Double? = nil,
         lowPower: FxLowPower = .auto,
         onError: ((SinuaSpecError) -> Void)? = nil,
-        onFrame: ((FxFrameStats) -> Void)? = nil
+        onFrame: ((FxFrameStats) -> Void)? = nil,
+        labels: [String: String] = [:],
+        announce: Bool? = nil,
+        haptics: Bool = false,
+        rules: Bool = true,
+        effect: SinuaEffectTrigger? = nil
     ) {
         self.init(pattern: .working, voice: voice, voiceOverrides: voiceOverrides, theme: theme, paused: paused,
-                  reducedMotion: reducedMotion, accessibilityLabel: accessibilityLabel, maxFps: maxFps, lowPower: lowPower, onFrame: onFrame)
+                  reducedMotion: reducedMotion, accessibilityLabel: accessibilityLabel, maxFps: maxFps, lowPower: lowPower, onFrame: onFrame,
+                  labels: labels, announce: announce, haptics: haptics, effect: effect)
+        self.rules = rules
         self.spec = spec
         self.state = state
         self.inputs = inputs
@@ -503,12 +527,14 @@ public struct SinuaOrb: View {
             } else {
                 SinuaView(spec: spec, voice: voice, voiceOverrides: voiceOverrides, state: state, inputs: inputs,
                        voiceLevelInput: voiceLevelInput, theme: theme, paused: paused, reducedMotion: reducedMotion,
-                       accessibilityLabel: accessibilityLabel, maxFps: maxFps, lowPower: lowPower, onFrame: onFrame)
+                       accessibilityLabel: accessibilityLabel, maxFps: maxFps, lowPower: lowPower, onFrame: onFrame,
+                       labels: labels, announce: announce, haptics: haptics, rules: rules, effect: effect)
             }
         } else {
             SinuaView(pattern: pattern.rawValue, size: size.rawValue, overrides: overrides(), speed: speed, state: state, inputs: inputs, voice: voice,
                    voiceOverrides: voiceOverrides, theme: theme, paused: paused, reducedMotion: reducedMotion,
-                   accessibilityLabel: accessibilityLabel, maxFps: maxFps, lowPower: lowPower, onFrame: onFrame)
+                   accessibilityLabel: accessibilityLabel, maxFps: maxFps, lowPower: lowPower, onFrame: onFrame,
+                   labels: labels, announce: announce, haptics: haptics, effect: effect)
         }
     }
 }

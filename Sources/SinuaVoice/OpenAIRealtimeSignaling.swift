@@ -16,9 +16,25 @@ public enum OpenAIRealtimeSignaling {
         case malformed(String)
     }
 
-    /// The SDP offer -> `POST /v1/realtime/calls` with the ephemeral key; the answer SDP comes back as text.
-    public static func callsRequest(sdpOffer: String, ephemeralKey: String, url: URL = callsURL) -> URLRequest {
-        var r = URLRequest(url: url)
+    /// WARP's pre-negotiated event channel id (any free id works; the same one goes in `dcid`).
+    public static let warpDataChannelId: Int32 = 1
+    /// WARP's libwebrtc field trials (developers.openai.com `guides/realtime-webrtc-warp`):
+    /// DTLS 1.3, SNAP and SPED. Process-wide, and only read before the first peer connection factory.
+    public static let warpFieldTrials =
+        "WebRTC-ForceDtls13/Enabled/WebRTC-Sctp-Snap/Enabled/WebRTC-IceHandshakeDtls/Enabled/"
+
+    /// The SDP offer -> `POST /v1/realtime/calls` with the ephemeral key; the answer SDP comes back
+    /// as text. `dcid`: WARP's pre-negotiated event channel id, sent along as `?dcid=`.
+    public static func callsRequest(sdpOffer: String, ephemeralKey: String, url: URL = callsURL, dcid: Int32? = nil)
+        -> URLRequest
+    {
+        var target = url
+        if let dcid, var c = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+            let kept = (c.queryItems ?? []).filter { $0.name != "dcid" }
+            c.queryItems = kept + [URLQueryItem(name: "dcid", value: String(dcid))]
+            target = c.url ?? url
+        }
+        var r = URLRequest(url: target)
         r.httpMethod = "POST"
         r.setValue("Bearer \(ephemeralKey)", forHTTPHeaderField: "Authorization")
         r.setValue("application/sdp", forHTTPHeaderField: "Content-Type")
