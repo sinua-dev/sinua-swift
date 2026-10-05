@@ -731,6 +731,75 @@ public func FfiConverterTypeAnnouncerState_lower(_ value: AnnouncerState) -> Rus
 
 
 /**
+ * A cosmetic slot this frame (design note 29, C2): where a dragged item snaps.
+ */
+public struct CharacterSlot: Equatable, Hashable {
+    public var name: String
+    public var x: Double
+    public var y: Double
+    public var scale: Double
+    public var angle: Double
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(name: String, x: Double, y: Double, scale: Double, angle: Double) {
+        self.name = name
+        self.x = x
+        self.y = y
+        self.scale = scale
+        self.angle = angle
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension CharacterSlot: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCharacterSlot: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CharacterSlot {
+        return
+            try CharacterSlot(
+                name: FfiConverterString.read(from: &buf), 
+                x: FfiConverterDouble.read(from: &buf), 
+                y: FfiConverterDouble.read(from: &buf), 
+                scale: FfiConverterDouble.read(from: &buf), 
+                angle: FfiConverterDouble.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: CharacterSlot, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.name, into: &buf)
+        FfiConverterDouble.write(value.x, into: &buf)
+        FfiConverterDouble.write(value.y, into: &buf)
+        FfiConverterDouble.write(value.scale, into: &buf)
+        FfiConverterDouble.write(value.angle, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCharacterSlot_lift(_ buf: RustBuffer) throws -> CharacterSlot {
+    return try FfiConverterTypeCharacterSlot.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCharacterSlot_lower(_ value: CharacterSlot) -> RustBuffer {
+    return FfiConverterTypeCharacterSlot.lower(value)
+}
+
+
+/**
  * One instant of a simulated conversation.
  */
 public struct ConversationFrame: Equatable, Hashable {
@@ -1663,6 +1732,64 @@ public func FfiConverterTypeFxHsl_lower(_ value: FxHsl) -> RustBuffer {
 
 
 /**
+ * A character's palette override (design note 19), resolved for a view: the
+ * engine opts (`palette.<slot>.h/.s/.l/.w`) and what went wrong or reads badly.
+ */
+public struct FxPaletteResult: Equatable, Hashable {
+    public var overrides: [String: Double]
+    public var diagnostics: [FxDiagnostic]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(overrides: [String: Double], diagnostics: [FxDiagnostic]) {
+        self.overrides = overrides
+        self.diagnostics = diagnostics
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FxPaletteResult: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFxPaletteResult: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FxPaletteResult {
+        return
+            try FxPaletteResult(
+                overrides: FfiConverterDictionaryStringDouble.read(from: &buf), 
+                diagnostics: FfiConverterSequenceTypeFxDiagnostic.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FxPaletteResult, into buf: inout [UInt8]) {
+        FfiConverterDictionaryStringDouble.write(value.overrides, into: &buf)
+        FfiConverterSequenceTypeFxDiagnostic.write(value.diagnostics, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFxPaletteResult_lift(_ buf: RustBuffer) throws -> FxPaletteResult {
+    return try FfiConverterTypeFxPaletteResult.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFxPaletteResult_lower(_ value: FxPaletteResult) -> RustBuffer {
+    return FfiConverterTypeFxPaletteResult.lower(value)
+}
+
+
+/**
  * A spec resolved to what the engine understands. `ok` is false when any
  * diagnostic is an error; `overrides` then holds whatever did resolve, but
  * callers should not render it (`frame_from_fx_spec` returns `None`).
@@ -1805,12 +1932,24 @@ public func FfiConverterTypeFxSpecResolved_lower(_ value: FxSpecResolved) -> Rus
 public struct FxTransition: Equatable, Hashable {
     public var duration: Double
     public var curve: String
+    /**
+     * The spec's author wrote `curve` for this change (design note 31): a view
+     * keeps that curve, carrying the motion's velocity into it. Otherwise the view
+     * uses its own transition clock and `curve` is the 0.6 s default's name.
+     */
+    public var authored: Bool
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(duration: Double, curve: String) {
+    public init(duration: Double, curve: String, 
+        /**
+         * The spec's author wrote `curve` for this change (design note 31): a view
+         * keeps that curve, carrying the motion's velocity into it. Otherwise the view
+         * uses its own transition clock and `curve` is the 0.6 s default's name.
+         */authored: Bool) {
         self.duration = duration
         self.curve = curve
+        self.authored = authored
     }
 
     
@@ -1830,13 +1969,15 @@ public struct FfiConverterTypeFxTransition: FfiConverterRustBuffer {
         return
             try FxTransition(
                 duration: FfiConverterDouble.read(from: &buf), 
-                curve: FfiConverterString.read(from: &buf)
+                curve: FfiConverterString.read(from: &buf), 
+                authored: FfiConverterBool.read(from: &buf)
         )
     }
 
     public static func write(_ value: FxTransition, into buf: inout [UInt8]) {
         FfiConverterDouble.write(value.duration, into: &buf)
         FfiConverterString.write(value.curve, into: &buf)
+        FfiConverterBool.write(value.authored, into: &buf)
     }
 }
 
@@ -2106,6 +2247,63 @@ public func FfiConverterTypeLiquidSuitability_lift(_ buf: RustBuffer) throws -> 
 #endif
 public func FfiConverterTypeLiquidSuitability_lower(_ value: LiquidSuitability) -> RustBuffer {
     return FfiConverterTypeLiquidSuitability.lower(value)
+}
+
+
+/**
+ * [`apply_loadout`]'s result.
+ */
+public struct LoadoutApplied: Equatable, Hashable {
+    public var spec: String
+    public var diagnostics: [FxDiagnostic]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(spec: String, diagnostics: [FxDiagnostic]) {
+        self.spec = spec
+        self.diagnostics = diagnostics
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension LoadoutApplied: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLoadoutApplied: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LoadoutApplied {
+        return
+            try LoadoutApplied(
+                spec: FfiConverterString.read(from: &buf), 
+                diagnostics: FfiConverterSequenceTypeFxDiagnostic.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: LoadoutApplied, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.spec, into: &buf)
+        FfiConverterSequenceTypeFxDiagnostic.write(value.diagnostics, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLoadoutApplied_lift(_ buf: RustBuffer) throws -> LoadoutApplied {
+    return try FfiConverterTypeLoadoutApplied.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLoadoutApplied_lower(_ value: LoadoutApplied) -> RustBuffer {
+    return FfiConverterTypeLoadoutApplied.lower(value)
 }
 
 
@@ -2538,6 +2736,13 @@ public struct TransitionMix: Equatable, Hashable {
      * `params`: the weight of the `structural_to` frame, `0..1`.
      */
     public var swap: Double
+    /**
+     * Accumulated rate key (`pulsePeriodCycles`, ...) → its rate now, per second of
+     * engine time (design note 31, TS1). The view adds `rate × dt` to each and passes
+     * the sums with the overrides, so a rate that changes mid-session doesn't make the
+     * motion jump. Empty when the design sets no rate key.
+     */
+    public var rates: [String: Double]
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -2562,13 +2767,20 @@ public struct TransitionMix: Equatable, Hashable {
          */structuralTo: [String: Double], 
         /**
          * `params`: the weight of the `structural_to` frame, `0..1`.
-         */swap: Double) {
+         */swap: Double, 
+        /**
+         * Accumulated rate key (`pulsePeriodCycles`, ...) → its rate now, per second of
+         * engine time (design note 31, TS1). The view adds `rate × dt` to each and passes
+         * the sums with the overrides, so a rate that changes mid-session doesn't make the
+         * motion jump. Empty when the design sets no rate key.
+         */rates: [String: Double]) {
         self.technique = technique
         self.weight = weight
         self.speed = speed
         self.overrides = overrides
         self.structuralTo = structuralTo
         self.swap = swap
+        self.rates = rates
     }
 
     
@@ -2592,7 +2804,8 @@ public struct FfiConverterTypeTransitionMix: FfiConverterRustBuffer {
                 speed: FfiConverterDouble.read(from: &buf), 
                 overrides: FfiConverterDictionaryStringDouble.read(from: &buf), 
                 structuralTo: FfiConverterDictionaryStringDouble.read(from: &buf), 
-                swap: FfiConverterDouble.read(from: &buf)
+                swap: FfiConverterDouble.read(from: &buf), 
+                rates: FfiConverterDictionaryStringDouble.read(from: &buf)
         )
     }
 
@@ -2603,6 +2816,7 @@ public struct FfiConverterTypeTransitionMix: FfiConverterRustBuffer {
         FfiConverterDictionaryStringDouble.write(value.overrides, into: &buf)
         FfiConverterDictionaryStringDouble.write(value.structuralTo, into: &buf)
         FfiConverterDouble.write(value.swap, into: &buf)
+        FfiConverterDictionaryStringDouble.write(value.rates, into: &buf)
     }
 }
 
@@ -2978,30 +3192,6 @@ fileprivate struct FfiConverterOptionTypeFillGradient: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-fileprivate struct FfiConverterOptionTypeFxCost: FfiConverterRustBuffer {
-    typealias SwiftType = FxCost?
-
-    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
-        guard let value = value else {
-            writeInt(&buf, Int8(0))
-            return
-        }
-        writeInt(&buf, Int8(1))
-        FfiConverterTypeFxCost.write(value, into: &buf)
-    }
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
-        switch try readInt(&buf) as Int8 {
-        case 0: return nil
-        case 1: return try FfiConverterTypeFxCost.read(from: &buf)
-        default: throw UniffiInternalError.unexpectedOptionalTag
-        }
-    }
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
 fileprivate struct FfiConverterOptionTypeFxHsl: FfiConverterRustBuffer {
     typealias SwiftType = FxHsl?
 
@@ -3018,30 +3208,6 @@ fileprivate struct FfiConverterOptionTypeFxHsl: FfiConverterRustBuffer {
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterTypeFxHsl.read(from: &buf)
-        default: throw UniffiInternalError.unexpectedOptionalTag
-        }
-    }
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-fileprivate struct FfiConverterOptionTypeLiquidSuitability: FfiConverterRustBuffer {
-    typealias SwiftType = LiquidSuitability?
-
-    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
-        guard let value = value else {
-            writeInt(&buf, Int8(0))
-            return
-        }
-        writeInt(&buf, Int8(1))
-        FfiConverterTypeLiquidSuitability.write(value, into: &buf)
-    }
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
-        switch try readInt(&buf) as Int8 {
-        case 0: return nil
-        case 1: return try FfiConverterTypeLiquidSuitability.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -3212,6 +3378,31 @@ fileprivate struct FfiConverterSequenceString: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterString.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeCharacterSlot: FfiConverterRustBuffer {
+    typealias SwiftType = [CharacterSlot]
+
+    public static func write(_ value: [CharacterSlot], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeCharacterSlot.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [CharacterSlot] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [CharacterSlot]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeCharacterSlot.read(from: &buf))
         }
         return seq
     }
@@ -3420,6 +3611,31 @@ fileprivate struct FfiConverterSequenceTypePolyline: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeTransitionSide: FfiConverterRustBuffer {
+    typealias SwiftType = [TransitionSide]
+
+    public static func write(_ value: [TransitionSide], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeTransitionSide.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [TransitionSide] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [TransitionSide]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeTransitionSide.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceSequenceTypePoint: FfiConverterRustBuffer {
     typealias SwiftType = [[Point]]
 
@@ -3540,17 +3756,30 @@ public func a11yStateWords(name: String, state: String?, specWords: [String: Str
 })
 }
 /**
- * Validates engine overrides for a pattern against the catalog: unknown
- * keys (with a did-you-mean), out-of-range values, fractional values for
- * whole-number keys, renamed keys. Warnings only -- the frame is unaffected.
- * `state` is the pattern id, as everywhere in the low-level API.
+ * A loadout applied to an FX Spec (design note 25): the file with the end
+ * user's choices in it, and warnings for whatever it no longer offers.
  */
-public func checkOverrides(state: String, size: UInt32, overrides: [String: Double]) -> [FxDiagnostic]  {
-    return try!  FfiConverterSequenceTypeFxDiagnostic.lift(try! rustCall() {
+public func applyLoadout(spec: String, loadout: String) -> LoadoutApplied  {
+    return try!  FfiConverterTypeLoadoutApplied_lift(try! rustCall() {
         uniffiCallStatus in
-    uniffi_core_engine_fn_func_check_overrides(
+    uniffi_core_engine_fn_func_apply_loadout(
+        FfiConverterString.lower(spec),
+        FfiConverterString.lower(loadout),uniffiCallStatus
+    )
+})
+}
+/**
+ * `state`'s cosmetic slots at `t` (a built-in character or a recipe's registry key), in
+ * frame units at `size`, following the pose as the drawing does: an app snaps a dropped
+ * item to the nearest. Empty for anything that isn't a character.
+ */
+public func characterSlots(state: String, size: UInt32, t: Double, overrides: [String: Double]) -> [CharacterSlot]  {
+    return try!  FfiConverterSequenceTypeCharacterSlot.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_core_engine_fn_func_character_slots(
         FfiConverterString.lower(state),
         FfiConverterUInt32.lower(size),
+        FfiConverterDouble.lower(t),
         FfiConverterDictionaryStringDouble.lower(overrides),uniffiCallStatus
     )
 })
@@ -3595,6 +3824,18 @@ public func conversationSampleNames() -> [String]  {
 })
 }
 /**
+ * What a file's wardrobe offers `character`, for a picker (design note 25).
+ */
+public func cosmeticsFor(spec: String, character: String) -> [FxDiagnostic]  {
+    return try!  FfiConverterSequenceTypeFxDiagnostic.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_core_engine_fn_func_cosmetics_for(
+        FfiConverterString.lower(spec),
+        FfiConverterString.lower(character),uniffiCallStatus
+    )
+})
+}
+/**
  * A one-shot feedback effect by name (`success`, `error`, `celebrate`;
  * docs/fx-view.md, *One-shot effects*): the code and duration a view feeds
  * as `effectCode` / `effectAge` runtime keys, and the words it speaks. `None`
@@ -3609,19 +3850,15 @@ public func effectInfo(name: String) -> EffectInfo?  {
 })
 }
 /**
- * Render-cost proxy of `(state, size)` with `overrides` -- element count
- * and coverage (primitive area / canvas area), the max over fixed sample
- * times, classed light / medium / heavy (`cost.rs`; docs/engine.md, *Cost
- * estimate*). A proxy for a Studio badge or a host's shedding decision,
- * not a measurement. `None` if the state doesn't resolve.
+ * A character's expression (design note 16) as the engine opts that weigh
+ * it: the named one 1, the others 0; `"none"` all 0. `None` for an unknown
+ * name. A view sets these (eased over a change) to draw `expression`.
  */
-public func estimateCost(state: String, size: UInt32, overrides: [String: Double]) -> FxCost?  {
-    return try!  FfiConverterOptionTypeFxCost.lift(try! rustCall() {
+public func expressionOverrides(name: String) -> [String: Double]?  {
+    return try!  FfiConverterOptionDictionaryStringDouble.lift(try! rustCall() {
         uniffiCallStatus in
-    uniffi_core_engine_fn_func_estimate_cost(
-        FfiConverterString.lower(state),
-        FfiConverterUInt32.lower(size),
-        FfiConverterDictionaryStringDouble.lower(overrides),uniffiCallStatus
+    uniffi_core_engine_fn_func_expression_overrides(
+        FfiConverterString.lower(name),uniffiCallStatus
     )
 })
 }
@@ -3671,6 +3908,22 @@ public func frameFromFxSpecWith(json: String, elapsed: Double, state: String?, i
         FfiConverterOptionString.lower(state),
         FfiConverterDictionaryStringDouble.lower(inputs),
         FfiConverterBool.lower(lowPower),uniffiCallStatus
+    )
+})
+}
+/**
+ * A thumbnail (design note 25): the spec with `loadout` (may be empty) drawn
+ * once in a still pose (no glance, no blink) at `turn_yaw` (radians, 0 =
+ * facing), without touching the live characters' registry.
+ */
+public func frameStill(spec: String, loadout: String, size: UInt32, turnYaw: Double) -> OrbFrame?  {
+    return try!  FfiConverterOptionTypeOrbFrame.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_core_engine_fn_func_frame_still(
+        FfiConverterString.lower(spec),
+        FfiConverterString.lower(loadout),
+        FfiConverterUInt32.lower(size),
+        FfiConverterDouble.lower(turnYaw),uniffiCallStatus
     )
 })
 }
@@ -3766,21 +4019,6 @@ public func fxSpecAccessibility(json: String) -> FxAccessibility  {
 })
 }
 /**
- * `estimate_cost` for an FX Spec resolved with `(state, inputs,
- * low_power)`. `None` if the spec has errors.
- */
-public func fxSpecCost(json: String, state: String?, inputs: [String: Double], lowPower: Bool = false) -> FxCost?  {
-    return try!  FfiConverterOptionTypeFxCost.lift(try! rustCall() {
-        uniffiCallStatus in
-    uniffi_core_engine_fn_func_fx_spec_cost(
-        FfiConverterString.lower(json),
-        FfiConverterOptionString.lower(state),
-        FfiConverterDictionaryStringDouble.lower(inputs),
-        FfiConverterBool.lower(lowPower),uniffiCallStatus
-    )
-})
-}
-/**
  * The `states` key an FX Spec's 1.9 `rules` pick for the app's `inputs`,
  * given the state rendered last (`previous`, for hysteresis): the first rule
  * that holds, else `None` -- keep the caller's own state. Pure; the caller
@@ -3813,30 +4051,30 @@ public func fxSpecTransition(json: String, from: String?, to: String?) -> FxTran
 })
 }
 /**
- * How well the liquid material suits `state` (`"recommended"` / `"ok"` /
- * `"notRecommended"`, a one-line reason, and the state's tuned liquid
- * defaults) -- from contact sheets, see docs/materials.md. For a Studio
- * badge. `None` only for an unknown state.
+ * Loads a catalog pack (design note 26): `{ "catalog": 1, "namespace": "...",
+ * "cosmetics": [...], "palettes": {...} }`. Files then name its items as
+ * `"<namespace>:<id>"`. Loading a namespace again replaces it; an error loads nothing.
  */
-public func liquidSuitability(state: String) -> LiquidSuitability?  {
-    return try!  FfiConverterOptionTypeLiquidSuitability.lift(try! rustCall() {
+public func loadCatalog(json: String) -> [FxDiagnostic]  {
+    return try!  FfiConverterSequenceTypeFxDiagnostic.lift(try! rustCall() {
         uniffiCallStatus in
-    uniffi_core_engine_fn_func_liquid_suitability(
-        FfiConverterString.lower(state),uniffiCallStatus
+    uniffi_core_engine_fn_func_load_catalog(
+        FfiConverterString.lower(json),uniffiCallStatus
     )
 })
 }
 /**
- * The **parameter catalog** (docs/parameters.md, *Parameter catalog*) as
- * JSON text: every object, pattern and tunable with labels, descriptions,
- * ranges, groups, paths and per-size defaults. `spec/parameters.json` is a
- * checked-in copy. Parse it on the caller's side (one stable JSON shape
- * on every platform rather than a deep tree of UniFFI records).
+ * `palette` (a JSON object: slots or roles -> hex or DTCG colour, `theme`,
+ * `dark`; design notes 19, 23) on `pattern`, through the FX Spec's own
+ * `palette` rules, so a view and a file paint alike. The dark variant comes
+ * back as `palette.dark.<slot>.*`, picked when the view passes `dark`.
  */
-public func parameterCatalogJson() -> String  {
-    return try!  FfiConverterString.lift(try! rustCall() {
+public func paletteOverrides(pattern: String, paletteJson: String) -> FxPaletteResult  {
+    return try!  FfiConverterTypeFxPaletteResult_lift(try! rustCall() {
         uniffiCallStatus in
-    uniffi_core_engine_fn_func_parameter_catalog_json(uniffiCallStatus
+    uniffi_core_engine_fn_func_palette_overrides(
+        FfiConverterString.lower(pattern),
+        FfiConverterString.lower(paletteJson),uniffiCallStatus
     )
 })
 }
@@ -3958,6 +4196,37 @@ public func transitionMix(from: TransitionSide, to: TransitionSide, size: UInt32
 })
 }
 /**
+ * Forgets a catalog pack's items; whether it had any.
+ */
+public func unloadCatalog(namespace: String) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_core_engine_fn_func_unload_catalog(
+        FfiConverterString.lower(namespace),uniffiCallStatus
+    )
+})
+}
+/**
+ * The voice states' weighted mix of one pattern (design note 31): `sides` are the
+ * pattern's voice-state sides (profile merged under the app's overrides), `weights`
+ * one per side (the view moves them with its transition clock), `target` the index
+ * of the state it is heading to (arrival keys take its value at once). Continuous
+ * keys blend by weight (hues the short way round); counts and choices come from the
+ * heaviest side, with the second's in `structural_to` dissolved by `swap`. `rates`
+ * is filled as in [`transition_mix`]. `None` if the sides draw different patterns.
+ */
+public func voiceBlend(sides: [TransitionSide], weights: [Double], target: UInt32, size: UInt32) -> TransitionMix?  {
+    return try!  FfiConverterOptionTypeTransitionMix.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_core_engine_fn_func_voice_blend(
+        FfiConverterSequenceTypeTransitionSide.lower(sides),
+        FfiConverterSequenceDouble.lower(weights),
+        FfiConverterUInt32.lower(target),
+        FfiConverterUInt32.lower(size),uniffiCallStatus
+    )
+})
+}
+/**
  * The **voice-state profile** for `state` on `pattern` (docs/fx-spec.md,
  * *v1.8*): the speed multiplier and engine overrides that make one shape
  * read as `idle` / `listening` / `thinking` / `speaking`, plus which app
@@ -4003,7 +4272,10 @@ private let initializationResult: InitializationResult = {
     if (uniffi_core_engine_checksum_func_a11y_state_words() != 27679) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_core_engine_checksum_func_check_overrides() != 22997) {
+    if (uniffi_core_engine_checksum_func_apply_loadout() != 1802) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_core_engine_checksum_func_character_slots() != 33009) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_core_engine_checksum_func_conversation_at() != 56126) {
@@ -4015,10 +4287,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_core_engine_checksum_func_conversation_sample_names() != 15034) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_core_engine_checksum_func_cosmetics_for() != 48596) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_core_engine_checksum_func_effect_info() != 46267) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_core_engine_checksum_func_estimate_cost() != 57234) {
+    if (uniffi_core_engine_checksum_func_expression_overrides() != 14228) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_core_engine_checksum_func_frame() != 6724) {
@@ -4028,6 +4303,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_core_engine_checksum_func_frame_from_fx_spec_with() != 25757) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_core_engine_checksum_func_frame_still() != 4892) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_core_engine_checksum_func_frame_transition() != 49818) {
@@ -4045,19 +4323,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_core_engine_checksum_func_fx_spec_accessibility() != 38977) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_core_engine_checksum_func_fx_spec_cost() != 49042) {
-        return InitializationResult.apiChecksumMismatch
-    }
     if (uniffi_core_engine_checksum_func_fx_spec_derive_state() != 37115) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_core_engine_checksum_func_fx_spec_transition() != 38102) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_core_engine_checksum_func_liquid_suitability() != 35311) {
+    if (uniffi_core_engine_checksum_func_load_catalog() != 24571) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_core_engine_checksum_func_parameter_catalog_json() != 56937) {
+    if (uniffi_core_engine_checksum_func_palette_overrides() != 51677) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_core_engine_checksum_func_particle_defaults() != 6092) {
@@ -4079,6 +4354,12 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_core_engine_checksum_func_transition_mix() != 22488) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_core_engine_checksum_func_unload_catalog() != 60170) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_core_engine_checksum_func_voice_blend() != 38227) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_core_engine_checksum_func_voice_state_profile() != 43901) {

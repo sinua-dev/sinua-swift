@@ -17,6 +17,9 @@ public struct SinuaEffectTrigger: Equatable, Sendable {
         case error
         /// A burst of particles (1.4 s); spoken "Well done".
         case celebrate
+        /// A character's tap hop (0.6 s), silent; other families draw nothing for it.
+        /// A `SinuaView` with `tap` plays it on a tap, glancing toward the tap.
+        case hop
     }
 
     public let kind: Kind

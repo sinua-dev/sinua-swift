@@ -27,6 +27,7 @@ public struct SinuaOrb: View {
         case progressing = "progressing"
         case concluding = "concluding"
         case muted = "muted"
+        case silhouette = "silhouette"
     }
 
     public var pattern: Pattern
@@ -41,6 +42,8 @@ public struct SinuaOrb: View {
     public var barCount: Int?
     /// Dots stacked in each bar. Range 1...24. Patterns: speaking.
     public var barDotCount: Int?
+    /// How much the silhouette breathes (idle). Range 0...1 (fraction). Patterns: silhouette.
+    public var breath: Double?
     /// Radius of the centre dot. Range 0...6. Patterns: confirming.
     public var coreSize: Double?
     /// Length of each star's trail. Range 0...0.5. Patterns: initializing.
@@ -51,7 +54,7 @@ public struct SinuaOrb: View {
     public var dim: Double?
     /// Brightness of the dots the scan hasn't reached. Range 0...1 (fraction). Patterns: searching.
     public var dimBase: Double?
-    /// Dot radius. Range 0...6. Patterns: speaking, concluding.
+    /// Dot radius. Range speaking 0...6, concluding 0...6, silhouette 0...4. Patterns: speaking, concluding, silhouette.
     public var dotSize: Double?
     /// How far dots drift before they lock into the lattice. Range 0...2 (fraction). Patterns: concluding.
     public var driftAmplitude: Double?
@@ -67,9 +70,13 @@ public struct SinuaOrb: View {
     public var ghostN: Int?
     /// Radius of the faint orbit-path dots. Range 0...4. Patterns: working.
     public var ghostR: Double?
+    /// Dots that catch the light now and then (idle). Range 0...1 (fraction). Patterns: silhouette.
+    public var glint: Double?
     /// Seconds each pattern holds before the next. Range 0.1...30 (s). Patterns: calibrating.
     public var holdDuration: Double?
-    /// Ink hue in degrees; applies once saturation is above 0. Range 0...360 (deg). Patterns: speaking, muted.
+    /// A brighter rim and, now and then, a thin band sliding sideways. Range 0...1 (fraction). Patterns: silhouette.
+    public var hologram: Double?
+    /// Ink hue in degrees; applies once saturation is above 0. Range 0...360 (deg). Patterns: speaking, muted, silhouette.
     public var hue: Double?
     /// Starting hue of the aurora colours. Range 0...360 (deg). Patterns: glowing.
     public var hueOffset: Double?
@@ -85,6 +92,8 @@ public struct SinuaOrb: View {
     public var inkFar: Double?
     /// How much darker the near side is than the far side. Range 0...1 (fraction). Patterns: searching, solving.
     public var inkSpan: Double?
+    /// Waves travelling in from the outline, stronger with the mic level (listening). Range 0...1 (fraction). Patterns: silhouette.
+    public var inward: Double?
     /// How fast the synthetic bars jump when no audio is supplied. Range 0...32. Patterns: speaking.
     public var jumpSpeed: Double?
     /// Parallel lanes of dots in the ribbon. Range 1...16. Patterns: composing, breathing.
@@ -99,6 +108,8 @@ public struct SinuaOrb: View {
     public var lonDensity: Double?
     /// Layer turns in one solve cycle. Range 1...64. Patterns: solving.
     public var moveCount: Int?
+    /// Dots flickering along the eye line (thinking). Range 0...1 (fraction). Patterns: silhouette.
+    public var neuron: Double?
     /// Dots on the sphere. Range 8...1000. Patterns: glowing, calibrating, progressing, muted.
     public var nodeCount: Int?
     /// Nodes in the network. Range 2...200. Patterns: connecting, drifting.
@@ -117,7 +128,7 @@ public struct SinuaOrb: View {
     public var partR: Double?
     /// Extra particle radius when nearest the viewer (depth cue). Range 0...6. Patterns: working.
     public var partRDepth: Double?
-    /// Seconds between sonar pings. Range confirming 0.05...30, initializing 0.05...30, concluding 0.5...60, muted 0.05...30. Patterns: confirming, initializing, concluding, muted.
+    /// Seconds between sonar pings. Range confirming 0.05...30, initializing 0.05...30, concluding 0.5...60, muted 0.05...30, silhouette 0.05...30. Patterns: confirming, initializing, concluding, muted, silhouette.
     public var period: Double?
     /// How far the eclipse has advanced, 0 to 1. Range 0...1 (fraction). Patterns: progressing.
     public var progress: Double?
@@ -133,6 +144,8 @@ public struct SinuaOrb: View {
     public var rDepth: Double?
     /// Dot radius as a fraction of the frame. Range 0.002...0.1 (fraction). Patterns: shaping.
     public var rDot: Double?
+    /// Strength of the outline and its glow. Range 0...1 (fraction). Patterns: silhouette.
+    public var rim: Double?
     /// Dots per expanding ring. Range 4...400. Patterns: confirming.
     public var ringCount: Int?
     /// Rings of dots across the wave surface. Range 2...64. Patterns: listening.
@@ -141,14 +154,20 @@ public struct SinuaOrb: View {
     public var rMin: Double?
     /// How dot radii scale with the frame size: radius x (size / 64)^rsPow; lower keeps small sizes chunkier. Range 0...2.
     public var rsPow: Double?
-    /// Colour saturation of the aurora. Range 0...1 (fraction). Patterns: glowing, speaking, muted.
+    /// Colour saturation of the aurora. Range 0...1 (fraction). Patterns: glowing, speaking, muted, silhouette.
     public var saturation: Double?
+    /// Bands moving down over the dots. Range 0...1 (fraction). Patterns: silhouette.
+    public var scanlines: Double?
     /// Speed of the scanning band across the globe. Range 0...16 (x). Patterns: searching.
     public var scanMul: Double?
+    /// Scanline bands per second. Range 0...4 (Hz). Patterns: silhouette.
+    public var scanSpeed: Double?
     /// Dots along each lane. Range 8...400. Patterns: composing, breathing.
     public var segs: Int?
     /// Bright pulses travelling along the links. Range 0...32. Patterns: connecting, drifting.
     public var signals: Int?
+    /// Waves spreading from the mouth with the voice's level (speaking). Range 0...1 (fraction). Patterns: silhouette.
+    public var speech: Double?
     /// Rotation speed of the ribbon. Range 0...4 (x). Patterns: composing, breathing.
     public var spin: Double?
     /// Size of the network relative to the frame. Range 0.1...2 (x). Patterns: connecting, shaping, drifting.
@@ -165,8 +184,14 @@ public struct SinuaOrb: View {
     public var thr: Double?
     /// How many times the strands twist around each other. Range 0...12. Patterns: weaving.
     public var turns: Double?
+    /// Where the head faces, sideways (-1..1; negative = the viewer's left). The shoulders stay. Range -1...1. Patterns: silhouette.
+    public var turnYaw: Double?
     /// Speed of the stars. Range 0...8 (x). Patterns: initializing.
     public var warpSpeed: Double?
+    /// Waves per second for the listening, thinking and speaking motion. Range 0...4 (Hz). Patterns: silhouette.
+    public var waveSpeed: Double?
+    /// Thin links between neighbouring dots. Range 0...1 (fraction). Patterns: silhouette.
+    public var wire: Double?
     /// How much the ribbon wobbles as it turns. Range 0...4 (x). Patterns: composing, breathing.
     public var wobMul: Double?
     /// Slow turning speed of the sphere. Range -4...4. Patterns: muted.
@@ -211,6 +236,7 @@ public struct SinuaOrb: View {
         bandMul: Double? = nil,
         barCount: Int? = nil,
         barDotCount: Int? = nil,
+        breath: Double? = nil,
         coreSize: Double? = nil,
         decay: Double? = nil,
         depthTone: Double? = nil,
@@ -224,7 +250,9 @@ public struct SinuaOrb: View {
         ghostA: Double? = nil,
         ghostN: Int? = nil,
         ghostR: Double? = nil,
+        glint: Double? = nil,
         holdDuration: Double? = nil,
+        hologram: Double? = nil,
         hue: Double? = nil,
         hueOffset: Double? = nil,
         hueSpeed: Double? = nil,
@@ -233,6 +261,7 @@ public struct SinuaOrb: View {
         ink: Double? = nil,
         inkFar: Double? = nil,
         inkSpan: Double? = nil,
+        inward: Double? = nil,
         jumpSpeed: Double? = nil,
         lanes: Double? = nil,
         latRings: Int? = nil,
@@ -240,6 +269,7 @@ public struct SinuaOrb: View {
         lineWidth: Double? = nil,
         lonDensity: Double? = nil,
         moveCount: Int? = nil,
+        neuron: Double? = nil,
         nodeCount: Int? = nil,
         nodeN: Int? = nil,
         nodeR: Double? = nil,
@@ -257,14 +287,18 @@ public struct SinuaOrb: View {
         rBoost: Double? = nil,
         rDepth: Double? = nil,
         rDot: Double? = nil,
+        rim: Double? = nil,
         ringCount: Int? = nil,
         rings: Int? = nil,
         rMin: Double? = nil,
         rsPow: Double? = nil,
         saturation: Double? = nil,
+        scanlines: Double? = nil,
         scanMul: Double? = nil,
+        scanSpeed: Double? = nil,
         segs: Int? = nil,
         signals: Int? = nil,
+        speech: Double? = nil,
         spin: Double? = nil,
         spread: Double? = nil,
         starCount: Int? = nil,
@@ -273,7 +307,10 @@ public struct SinuaOrb: View {
         surfaceSpeed: Double? = nil,
         thr: Double? = nil,
         turns: Double? = nil,
+        turnYaw: Double? = nil,
         warpSpeed: Double? = nil,
+        waveSpeed: Double? = nil,
+        wire: Double? = nil,
         wobMul: Double? = nil,
         yaw: Double? = nil,
         color: SinuaColor? = nil,
@@ -306,6 +343,7 @@ public struct SinuaOrb: View {
         self.bandMul = bandMul
         self.barCount = barCount
         self.barDotCount = barDotCount
+        self.breath = breath
         self.coreSize = coreSize
         self.decay = decay
         self.depthTone = depthTone
@@ -319,7 +357,9 @@ public struct SinuaOrb: View {
         self.ghostA = ghostA
         self.ghostN = ghostN
         self.ghostR = ghostR
+        self.glint = glint
         self.holdDuration = holdDuration
+        self.hologram = hologram
         self.hue = hue
         self.hueOffset = hueOffset
         self.hueSpeed = hueSpeed
@@ -328,6 +368,7 @@ public struct SinuaOrb: View {
         self.ink = ink
         self.inkFar = inkFar
         self.inkSpan = inkSpan
+        self.inward = inward
         self.jumpSpeed = jumpSpeed
         self.lanes = lanes
         self.latRings = latRings
@@ -335,6 +376,7 @@ public struct SinuaOrb: View {
         self.lineWidth = lineWidth
         self.lonDensity = lonDensity
         self.moveCount = moveCount
+        self.neuron = neuron
         self.nodeCount = nodeCount
         self.nodeN = nodeN
         self.nodeR = nodeR
@@ -352,14 +394,18 @@ public struct SinuaOrb: View {
         self.rBoost = rBoost
         self.rDepth = rDepth
         self.rDot = rDot
+        self.rim = rim
         self.ringCount = ringCount
         self.rings = rings
         self.rMin = rMin
         self.rsPow = rsPow
         self.saturation = saturation
+        self.scanlines = scanlines
         self.scanMul = scanMul
+        self.scanSpeed = scanSpeed
         self.segs = segs
         self.signals = signals
+        self.speech = speech
         self.spin = spin
         self.spread = spread
         self.starCount = starCount
@@ -368,7 +414,10 @@ public struct SinuaOrb: View {
         self.surfaceSpeed = surfaceSpeed
         self.thr = thr
         self.turns = turns
+        self.turnYaw = turnYaw
         self.warpSpeed = warpSpeed
+        self.waveSpeed = waveSpeed
+        self.wire = wire
         self.wobMul = wobMul
         self.yaw = yaw
         self.color = color
@@ -436,6 +485,7 @@ public struct SinuaOrb: View {
         if let v = bandMul { o["bandMul"] = v }
         if let v = barCount { o["barCount"] = Double(v) }
         if let v = barDotCount { o["barDotCount"] = Double(v) }
+        if let v = breath { o["breath"] = v }
         if let v = coreSize { o["coreSize"] = v }
         if let v = decay { o["decay"] = v }
         if let v = depthTone { o["depthTone"] = v }
@@ -449,7 +499,9 @@ public struct SinuaOrb: View {
         if let v = ghostA { o["ghostA"] = v }
         if let v = ghostN { o["ghostN"] = Double(v) }
         if let v = ghostR { o["ghostR"] = v }
+        if let v = glint { o["glint"] = v }
         if let v = holdDuration { o["holdDuration"] = v }
+        if let v = hologram { o["hologram"] = v }
         if let v = hue { o["hue"] = v }
         if let v = hueOffset { o["hueOffset"] = v }
         if let v = hueSpeed { o["hueSpeed"] = v }
@@ -458,6 +510,7 @@ public struct SinuaOrb: View {
         if let v = ink { o["ink"] = v }
         if let v = inkFar { o["inkFar"] = v }
         if let v = inkSpan { o["inkSpan"] = v }
+        if let v = inward { o["inward"] = v }
         if let v = jumpSpeed { o["jumpSpeed"] = v }
         if let v = lanes { o["lanes"] = v }
         if let v = latRings { o["latRings"] = Double(v) }
@@ -465,6 +518,7 @@ public struct SinuaOrb: View {
         if let v = lineWidth { o["lineWidth"] = v }
         if let v = lonDensity { o["lonDensity"] = v }
         if let v = moveCount { o["moveCount"] = Double(v) }
+        if let v = neuron { o["neuron"] = v }
         if let v = nodeCount { o["nodeCount"] = Double(v) }
         if let v = nodeN { o["nodeN"] = Double(v) }
         if let v = nodeR { o["nodeR"] = v }
@@ -482,14 +536,18 @@ public struct SinuaOrb: View {
         if let v = rBoost { o["rBoost"] = v }
         if let v = rDepth { o["rDepth"] = v }
         if let v = rDot { o["rDot"] = v }
+        if let v = rim { o["rim"] = v }
         if let v = ringCount { o["ringCount"] = Double(v) }
         if let v = rings { o["rings"] = Double(v) }
         if let v = rMin { o["rMin"] = v }
         if let v = rsPow { o["rsPow"] = v }
         if let v = saturation { o["saturation"] = v }
+        if let v = scanlines { o["scanlines"] = v }
         if let v = scanMul { o["scanMul"] = v }
+        if let v = scanSpeed { o["scanSpeed"] = v }
         if let v = segs { o["segs"] = Double(v) }
         if let v = signals { o["signals"] = Double(v) }
+        if let v = speech { o["speech"] = v }
         if let v = spin { o["spin"] = v }
         if let v = spread { o["spread"] = v }
         if let v = starCount { o["starCount"] = Double(v) }
@@ -498,7 +556,10 @@ public struct SinuaOrb: View {
         if let v = surfaceSpeed { o["surfaceSpeed"] = v }
         if let v = thr { o["thr"] = v }
         if let v = turns { o["turns"] = v }
+        if let v = turnYaw { o["turnYaw"] = v }
         if let v = warpSpeed { o["warpSpeed"] = v }
+        if let v = waveSpeed { o["waveSpeed"] = v }
+        if let v = wire { o["wire"] = v }
         if let v = wobMul { o["wobMul"] = v }
         if let v = yaw { o["yaw"] = v }
         color?.write(into: &o)

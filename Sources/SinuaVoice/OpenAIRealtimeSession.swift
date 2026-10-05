@@ -11,7 +11,8 @@ import Foundation
 /// during a response; left after ~300 ms of quiet once `response.done`).
 public final class OpenAIRealtimeSession {
     public static let speakingLevel = 0.05
-    public static let speakingTailFrames = 9  // ~300 ms at 30 Hz
+    /// The Live session's adaptive tail (design note 31, V7), counted in this session's ticks.
+    public static var speakingTailFrames: Int { OpenAILiveSession.speakingTailFrames }
 
     public private(set) var state: AgentState = .idle
     public let transcript = TranscriptLog()
@@ -20,6 +21,8 @@ public final class OpenAIRealtimeSession {
     private var responseActive = false
     private var sawOutputBufferEvents = false
     private var quietFrames = 0
+    /// 30 Hz ticks since the current speaking stretch began.
+    private var speakingTicks = 0
 
     public var onState: ((AgentState) -> Void)?
     public var onInterrupt: (() -> Void)?
@@ -84,17 +87,20 @@ public final class OpenAIRealtimeSession {
 
     /// 30 Hz with the remote track's current level: the energy fallback only.
     public func tick(level: Double) {
+        if state == .speaking { speakingTicks += 1 }
         if level > Self.speakingLevel {
             quietFrames = 0
             if state == .thinking, responseActive, !sawOutputBufferEvents { setState(.speaking) }
         } else if state == .speaking, !sawOutputBufferEvents, !responseActive {
             quietFrames += 1
-            if quietFrames >= Self.speakingTailFrames { setState(.listening) }
+            let tail = OpenAILiveSession.speakingTail(ms: Double(speakingTicks) * 1000 / 30)
+            if quietFrames >= tail { setState(.listening) }
         }
     }
 
     private func setState(_ s: AgentState) {
         guard s != state else { return }
+        if s == .speaking { speakingTicks = 0 }
         state = s
         onState?(s)
     }

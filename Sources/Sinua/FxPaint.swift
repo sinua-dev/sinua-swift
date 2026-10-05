@@ -124,6 +124,37 @@ public enum FxPaint {
         return map
     }
 
+    /// The grain tile's value at (x, y), 0..1 (< 0.5 dark, >= 0.5 light; alpha = |v - 0.5| * 2):
+    /// the same integer hash as the Web's `grainValue` and Android's (design note 22).
+    public static func grainValue(_ x: Int, _ y: Int) -> Double {
+        var h =
+            (UInt32(truncatingIfNeeded: x) &* 73_856_093) ^ (UInt32(truncatingIfNeeded: y) &* 19_349_663) ^ 0x9E37_79B9
+        h = (h ^ (h >> 13)) &* 1_274_126_177
+        h = h ^ (h >> 16)
+        return Double(h) / 4_294_967_296.0
+    }
+
+    /// The 64-px grain tile (premultiplied RGBA), built once; exporters embed it too.
+    public static let grainTile: CGImage? = {
+        let n = 64
+        var px = [UInt8](repeating: 0, count: n * n * 4)
+        for y in 0..<n {
+            for x in 0..<n {
+                let v = grainValue(x, y)
+                let a = UInt8((abs(v - 0.5) * 2 * 255).rounded())
+                let c: UInt8 = v >= 0.5 ? a : 0
+                let i = (y * n + x) * 4
+                (px[i], px[i + 1], px[i + 2], px[i + 3]) = (c, c, c, a)
+            }
+        }
+        guard let provider = CGDataProvider(data: Data(px) as CFData) else { return nil }
+        return CGImage(
+            width: n, height: n, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: n * 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+            provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent)
+    }()
+
     private static func shading(_ f: Fill, _ g: FillGradient, mirror: Bool) -> GraphicsContext.Shading {
         let stops = g.stops.map { st in
             Gradient.Stop(
@@ -155,8 +186,44 @@ public enum FxPaint {
                 path.closeSubpath()
             }
             let style = FillStyle(eoFill: !f.holes.isEmpty)
+            // Grain (blend 2, design note 22): the shape filled with the noise tile
+            // at `a`, one tile pixel per point however large the character is drawn
+            // (the context is in engine units, `scale` points each), anchored at the origin.
+            if f.blend == 2 {
+                if let tile = grainTile {
+                    var c = context
+                    c.opacity = min(1, max(0, f.a))
+                    c.fill(
+                        path,
+                        with: .tiledImage(
+                            Image(decorative: tile, scale: 1), origin: .zero,
+                            sourceRect: CGRect(x: 0, y: 0, width: 1, height: 1), scale: 1 / max(scale, 1e-9)),
+                        style: style)
+                }
+                continue
+            }
             withEffect(context, blur: f.blur, blend: f.blend) { c in
-                if let g = f.gradient, g.stops.count >= 2 {
+                if let g = f.gradient, g.stops.count >= 2, g.kind == 2 {
+                    // An elliptical radial: a circle of radius rx in the gradient's own
+                    // space (centre, axis, squash), the path mapped back by the inverse.
+                    let (ux, uy) = (g.x1 - g.x0, g.y1 - g.y0)
+                    let rx = max(1e-9, (ux * ux + uy * uy).squareRoot())
+                    let (cs, sn, k) = (ux / rx, uy / rx, max(1e-9, g.r / rx))
+                    let m = CGAffineTransform(a: cs, b: sn, c: -sn * k, d: cs * k, tx: g.x0, ty: g.y0)
+                    var e = c
+                    e.concatenate(m)
+                    let stops = g.stops.map { st in
+                        Gradient.Stop(
+                            color: ink(
+                                white: st.white, saturation: st.saturation, hue: st.hue, alpha: st.a * f.a, dark: mirror
+                            ),
+                            location: min(1, max(0, st.offset)))
+                    }
+                    e.fill(
+                        path.applying(m.inverted()),
+                        with: .radialGradient(Gradient(stops: stops), center: .zero, startRadius: 0, endRadius: rx),
+                        style: style)
+                } else if let g = f.gradient, g.stops.count >= 2 {
                     c.fill(path, with: shading(f, g, mirror: mirror), style: style)
                 } else {
                     c.fill(

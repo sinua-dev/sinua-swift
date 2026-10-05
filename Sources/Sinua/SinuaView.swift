@@ -40,6 +40,8 @@ public struct SinuaView: View {
     @State private var onScreen = false
     /// The view's short side, for the small-view frame cap (0 until laid out).
     @State private var shortSide: CGFloat = 0
+    /// The view's box, for the tap's place in the drawn square.
+    @State private var box: CGSize = .zero
     @ObservedObject private var power = LowPowerMonitor.shared
     @ObservedObject private var app = AppActivityMonitor.shared
 
@@ -74,14 +76,19 @@ public struct SinuaView: View {
         announce: Bool? = nil,
         haptics: Bool = false,
         rules: Bool = true,
-        effect: SinuaEffectTrigger? = nil
+        effect: SinuaEffectTrigger? = nil,
+        tap: Bool = false,
+        expression: String? = nil,
+        palette: [String: String] = [:],
+        loadout: SinuaLoadout? = nil
     ) {
         config = FxConfig(
             input: .spec(spec), voice: voice, voiceOverrides: voiceOverrides, specState: state, inputs: inputs,
             voiceLevelInput: voiceLevelInput, crossFade: crossFade, theme: theme, paused: paused,
             reducedMotion: reducedMotion,
             label: accessibilityLabel, maxFps: maxFps, lowPower: lowPower, onFrame: onFrame,
-            labels: labels, announce: announce, haptics: haptics, rules: rules, effect: effect
+            labels: labels, announce: announce, haptics: haptics, rules: rules, effect: effect, tap: tap,
+            expression: expression, palette: palette, loadout: loadout
         )
     }
 
@@ -108,7 +115,10 @@ public struct SinuaView: View {
         labels: [String: String] = [:],
         announce: Bool? = nil,
         haptics: Bool = false,
-        effect: SinuaEffectTrigger? = nil
+        effect: SinuaEffectTrigger? = nil,
+        tap: Bool = false,
+        expression: String? = nil,
+        palette: [String: String] = [:]
     ) {
         config = FxConfig(
             input: .state(pattern, size, overrides, speed), voice: voice, voiceOverrides: voiceOverrides,
@@ -116,7 +126,8 @@ public struct SinuaView: View {
             voiceLevelInput: nil, crossFade: nil, theme: theme, paused: paused, reducedMotion: reducedMotion,
             label: accessibilityLabel,
             maxFps: maxFps, lowPower: lowPower, onFrame: onFrame,
-            labels: labels, announce: announce, haptics: haptics, effect: effect
+            labels: labels, announce: announce, haptics: haptics, effect: effect, tap: tap,
+            expression: expression, palette: palette
         )
     }
 
@@ -224,7 +235,18 @@ public struct SinuaView: View {
         }
         // The box size, read without branching the body (an `if` would restart the timeline).
         .background(GeometryReader { g in Color.clear.preference(key: FxBoxSizeKey.self, value: g.size) })
-        .onPreferenceChange(FxBoxSizeKey.self) { shortSide = min($0.width, $0.height) }
+        .onPreferenceChange(FxBoxSizeKey.self) {
+            shortSide = min($0.width, $0.height)
+            box = $0
+        }
+        // Tap to hop: a touch that hardly moves (a scroll still scrolls).
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0).onEnded { g in
+                guard hypot(g.translation.width, g.translation.height) < 10 else { return }
+                model.hop(at: fxTapPoint(g.location, in: box))
+            },
+            including: config.tap ? .all : .none
+        )
         .onAppear {
             model.configureIfNeeded(config)
             onScreen = true
@@ -232,6 +254,15 @@ public struct SinuaView: View {
         .onDisappear { onScreen = false }
         .modifier(FxAccessibilityModifier(label: model.a11yLabel))
     }
+}
+
+/// Where a tap fell in the centred square the engine draws in, -1...1 from its centre.
+func fxTapPoint(_ p: CGPoint, in box: CGSize) -> (Double, Double) {
+    let side = min(box.width, box.height)
+    guard side > 0 else { return (0, 0) }
+    let x = (p.x - (box.width - side) / 2) / side * 2 - 1
+    let y = (p.y - (box.height - side) / 2) / side * 2 - 1
+    return (Double(max(-1, min(1, x))), Double(max(-1, min(1, y))))
 }
 
 /// Below this short side (points) a view defaults to 30 fps: a list of avatars,
@@ -282,6 +313,18 @@ struct FxConfig {
     var haptics = false
     var rules = true
     var effect: SinuaEffectTrigger?
+    /// Tap to hop (design note 15): a tap plays `hop`, glancing toward it. Characters only.
+    var tap = false
+    /// A character's expression (design note 16): "happy", "surprised", "thoughtful", "sad",
+    /// "sleepy", or "none". It wins over a spec's `expression`; nil lets the spec decide.
+    var expression: String?
+    /// A character's palette, in part (design note 19): slot -> hex, e.g. ["body": "#E63946"].
+    /// The slots' tones follow; it wins over a spec's `palette`. A change is immediate.
+    var palette: [String: String] = [:]
+    /// An end user's loadout (FX Spec 1.13, design note 25), with a spec that has a `wardrobe`.
+    /// A change eases (a hat pops in, colours blend; a cut under reduced motion). What the spec
+    /// no longer offers is skipped with a printed warning, and the rest applies.
+    var loadout: SinuaLoadout?
 
     /// What forces a re-resolve / rebind (the rest is read every frame).
     var key: String {
@@ -384,6 +427,11 @@ final class FxModel: ObservableObject {
     private var resolved:
         (state: String, size: UInt32, speed: Double, presetSpeed: Double, overrides: [String: Double])?
     private var spec: String?
+    /// The spec as given, and the loadout applied to it last (`spec` is the result).
+    private var specFile: String?
+    private var appliedLoadout: SinuaLoadout?
+    /// The spec draws a character (it may name a palette with a dark variant, design note 23).
+    private var specIsCharacter = false
     private var player = FxStatePlayer()
 
     /// The engine time to draw at, continuous across speed changes (see `phaseBase`).
@@ -409,6 +457,21 @@ final class FxModel: ObservableObject {
             overrides: (profile?.overrides ?? [:]).merging(r.overrides) { $1 })
     }
 
+    /// The loadout applied to the spec as given (design note 25); warnings are printed.
+    private func applyLoadout(_ l: SinuaLoadout?) {
+        appliedLoadout = l
+        guard let file = specFile else { return }
+        guard let l else {
+            spec = file
+            return
+        }
+        let r = l.apply(to: file)
+        spec = r.spec
+        if !r.warnings.isEmpty {
+            print("SinuaView loadout:", r.warnings.map { "\($0.path): \($0.message)" }.joined(separator: "; "))
+        }
+    }
+
     /// Re-resolves only when something that needs it changed (FxConfig.key).
     /// Called from draw too, so the view works even where onAppear never fires (ImageRenderer).
     func configureIfNeeded(_ c: FxConfig) {
@@ -416,6 +479,10 @@ final class FxModel: ObservableObject {
         if key == configKey {
             let wordsChanged = config.map { $0.labels != c.labels || $0.announce != c.announce } ?? false
             config = c
+            if c.loadout != appliedLoadout, specFile != nil {
+                applyLoadout(c.loadout)
+                player.wear()
+            }
             if wordsChanged { a11yState = .none }
             refreshA11y()
             play(c.effect, config: c)
@@ -433,7 +500,11 @@ final class FxModel: ObservableObject {
         lastLifecycle = nil
         switch c.input {
         case .spec(let json):
+            specFile = json
+            appliedLoadout = nil
             spec = json
+            applyLoadout(c.loadout)
+            specIsCharacter = Self.specObject(json) == "character"
             let r = resolveFxSpec(json: json)
             if r.ok {
                 resolved = (
@@ -448,6 +519,8 @@ final class FxModel: ObservableObject {
             player.crossFade = c.crossFade
         case .state(let state, let size, let overrides, let speed):
             spec = nil
+            specFile = nil
+            specIsCharacter = false
             if let preset = resolvedOpts(state: state, size: size) {
                 resolved = (state, size, speed, preset.speed, overrides)
                 defaultLabel = state
@@ -513,12 +586,20 @@ final class FxModel: ObservableObject {
     @Published private(set) var effectRunning = false
     private var effectPlayed: UUID?
     private var effect: (code: UInt32, duration: Double, start: Double)?
+    /// The tap hop's tap (-1...1 from the drawn square's centre), and when the last hop began.
+    private var tapAt: (Double, Double)?
+    private var lastHop = -Double.infinity
 
     /// Plays `trigger` if it's a new one (each `SinuaEffectTrigger` value plays once).
     func play(_ trigger: SinuaEffectTrigger?, config c: FxConfig) {
         guard let trigger, trigger.id != effectPlayed else { return }
         effectPlayed = trigger.id
+        if trigger.kind == .hop {
+            hop(at: nil)
+            return
+        }
         guard let info = effectInfo(name: trigger.kind.rawValue) else { return }
+        tapAt = nil
         effect = (info.code, info.duration, Self.now())
         // Published after this view update, so the timeline wakes for the effect.
         DispatchQueue.main.async { [weak self] in self?.effectRunning = true }
@@ -527,6 +608,62 @@ final class FxModel: ObservableObject {
         if !base.isEmpty, c.announce ?? a11yInfo.announce ?? true {
             Self.postAnnouncement(c.labels["effect:\(trigger.kind.rawValue)"] ?? info.words)
         }
+    }
+
+    // The palette's runtime keys, resolved once per (pattern, palette).
+    private var paletteFor: (String, [String: String])?
+    private var paletteCache: [String: Double] = [:]
+
+    /// The palette's runtime keys on `pattern` (design note 19); an unknown slot draws nothing new.
+    func paletteKeys(pattern: String, _ palette: [String: String]) -> [String: Double] {
+        if palette.isEmpty { return [:] }
+        if paletteFor?.0 != pattern || paletteFor?.1 != palette {
+            paletteFor = (pattern, palette)
+            let data = (try? JSONSerialization.data(withJSONObject: palette, options: [.sortedKeys])) ?? Data()
+            let json = String(decoding: data, as: UTF8.self)
+            paletteCache = paletteOverrides(pattern: pattern, paletteJson: json).overrides
+        }
+        return paletteCache
+    }
+
+    // The expression's weights, eased from what was shown to the new target over 0.6 s.
+    private var exprName: String?? = .none
+    private var exprFrom: [String: Double] = [:]
+    private var exprTo: [String: Double]?
+    private var exprStart = 0.0
+
+    /// The expression's runtime keys now: none while the app sets none (nil).
+    func expressionKeys(_ name: String?, reduced: Bool) -> [String: Double] {
+        let now = Self.now()
+        if exprName != .some(name) {
+            exprFrom = easedExpression(now: now, reduced: reduced) ?? [:]
+            exprTo = name.map { expressionOverrides(name: $0) ?? expressionOverrides(name: "none") ?? [:] }
+            exprStart = now
+            exprName = .some(name)
+        }
+        return easedExpression(now: now, reduced: reduced) ?? [:]
+    }
+
+    private func easedExpression(now: Double, reduced: Bool) -> [String: Double]? {
+        guard let to = exprTo else { return nil }
+        let u = reduced ? 1 : min(1, (now - exprStart) / 0.6)
+        let e = u * u * (3 - 2 * u)
+        return to.reduce(into: [:]) { out, kv in
+            let from = exprFrom[kv.key] ?? 0
+            out[kv.key] = from + (kv.value - from) * e
+        }
+    }
+
+    /// Plays the hop (a tap at `at`, or `.hop`): never over another effect, at most twice a second.
+    func hop(at: (Double, Double)?) {
+        guard let info = effectInfo(name: "hop") else { return }
+        let now = Self.now()
+        if let e = effect, e.code != info.code, now - e.start < e.duration { return }
+        guard now - lastHop >= 0.5 else { return }
+        lastHop = now
+        tapAt = at
+        effect = (info.code, info.duration, now)
+        DispatchQueue.main.async { [weak self] in self?.effectRunning = true }
     }
 
     /// The running effect's runtime keys (empty once it has ended).
@@ -538,7 +675,12 @@ final class FxModel: ObservableObject {
             DispatchQueue.main.async { [weak self] in self?.effectRunning = false }
             return [:]
         }
-        return ["effectCode": Double(e.code), "effectAge": max(0, age), "effectReduced": reduced ? 1 : 0]
+        var keys = ["effectCode": Double(e.code), "effectAge": max(0, age), "effectReduced": reduced ? 1 : 0]
+        if let (x, y) = tapAt, e.code == effectInfo(name: "hop")?.code {
+            keys["tapX"] = x
+            keys["tapY"] = y
+        }
+        return keys
     }
 
     /// The state may have changed: rename the view, and let the announcer decide.
@@ -626,7 +768,16 @@ final class FxModel: ObservableObject {
         var extra = perf.overrides.merging(voiceMap) { $1 }
         // A one-shot effect the view is playing (docs/fx-view.md): its runtime keys.
         extra.merge(effectKeys(reduced: reduced)) { $1 }
-        // A box-layout pattern (edge `framing`, signal `playing`) fills the box: it
+        // The app's expression, eased over a change (design note 16).
+        extra.merge(expressionKeys(config.expression, reduced: reduced)) { $1 }
+        // The app's palette (design note 19).
+        extra.merge(paletteKeys(pattern: resolved.state, config.palette)) { $1 }
+        // A palette's dark variant (FX Spec 1.13, design note 23): the engine picks it when
+        // told `dark`. Sent only where a variant may exist, so other frames are untouched.
+        if dark, specIsCharacter || Self.hasDarkPalette(extra) || Self.hasDarkPalette(resolved.overrides) {
+            extra["dark"] = 1
+        }
+        // A box-layout pattern (signal `playing`) fills the box: it
         // gets the box ratio as `aspect` and lays out in `size * aspect` by `size`.
         if boxLayout, size.height > 0 { extra["aspect"] = min(8, max(0.125, size.width / size.height)) }
 
@@ -654,9 +805,11 @@ final class FxModel: ObservableObject {
             // With a lifecycle state (given, or the bound voice's), the built-in voice-state
             // profile goes *under* the app's own overrides; the voice's live keys stay last.
             let lifecycle = self.lifecycle(config)
-            if lastLifecycle.map({ $0 != lifecycle }) ?? false {
-                // A state change animates (0.6 s easeInOut, or `crossFade` seconds); reduced motion cuts.
-                transition.start(duration: reduced ? 0 : (config.crossFade ?? 0.6), curve: "easeInOut")
+            if let last = lastLifecycle, last != lifecycle {
+                // A state change runs on the transition clock for the voice-state profile's
+                // time for the pair (design note 31), or `crossFade` seconds; reduced motion cuts.
+                let pair = fxSpecTransition(json: "{}", from: last, to: lifecycle)
+                transition.start(duration: reduced ? 0 : (config.crossFade ?? pair.duration), curve: pair.curve)
             }
             lastLifecycle = .some(lifecycle)
             transition.advance(min(rawDt, Self.maxDt))
@@ -674,15 +827,18 @@ final class FxModel: ObservableObject {
             var live = extra
             // `audioInput` names which app input drives `audioLevel` (never an engine key).
             if let name = profile?.audioInput, let level = config.inputs[name] { live["audioLevel"] = level }
+            // Seconds since the state changed (a character blinks at the end of the user's turn).
+            if let age = transition.stateAge { live["stateAge"] = age }
             if transition.active {
                 let out = transition.frames(side, size: resolved.size, t: t, extra: live)
                 frame = out.frame
                 previous = out.previous
                 blend = out.blend
             } else {
-                transition.settle(side)
+                // The side's overrides, plus the rate sums once a rate changed mid-session.
+                let own = transition.steadyOverrides(side, size: resolved.size, t: t)
                 frame = frameWithOverrides(
-                    state: resolved.state, size: resolved.size, t: t, overrides: side.overrides.merging(live) { $1 })
+                    state: resolved.state, size: resolved.size, t: t, overrides: own.merging(live) { $1 })
             }
         }
         guard let frame else { return }
@@ -723,6 +879,11 @@ final class FxModel: ObservableObject {
         return o
     }
 
+    /// Whether resolved opts carry a palette's dark variant (`palette.dark.<slot>.*`).
+    static func hasDarkPalette(_ o: [String: Double]) -> Bool {
+        o.keys.contains { $0.hasPrefix("palette.dark.") }
+    }
+
     static func specObject(_ json: String?) -> String? {
         guard let json, let d = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any] else {
             return nil
@@ -747,12 +908,17 @@ struct FxStatePlayer {
     private var current: String?
     private var started = false
     private var transition = StateTransition()
+    private var phaseBase = 0.0
+    private var elapsedBase = 0.0
+    private var phaseSpeed: Double?
+    private var lastElapsed = 0.0
 
     mutating func setState(_ key: String?, spec: String) {
         guard !started || key != current else { return }
         if started {
             let t = fxSpecTransition(json: spec, from: current, to: key)
-            transition.start(duration: crossFade ?? t.duration, curve: t.curve)
+            transition.start(
+                duration: crossFade ?? t.duration, curve: t.curve, authored: crossFade == nil && t.authored)
         }
         started = true
         current = key
@@ -760,6 +926,12 @@ struct FxStatePlayer {
 
     /// End a running transition now (reduced motion).
     mutating func skipTransition() { transition.cancel() }
+
+    /// The rate sums the transition keeps for `pattern` (design note 31); for tests.
+    func rateSums(_ pattern: String) -> [String: Double] { transition.rateSums(pattern) }
+
+    /// The loadout changed: ease from what is showing (design note 25).
+    mutating func wear() { transition.wear() }
 
     /// The current state as a transition side (effective speed), or nil if the spec has errors.
     private func side(spec: String, inputs: [String: Double]) -> (TransitionSide, UInt32)? {
@@ -783,8 +955,27 @@ struct FxStatePlayer {
             transition.cancel()
             return (nil, nil, 1)
         }
-        let t = elapsed * transition.speed(s, size: size)
+        let t = phase(elapsed, speed: transition.speed(s, size: size))
         return transition.frames(s, size: size, t: t, extra: extra)
+    }
+
+    /// The engine time: pinned at each speed change and run from there, so a state with
+    /// its own speed (or a mixed speed mid-transition) doesn't jump the pose. With one
+    /// speed it is exactly `elapsed × speed`.
+    private mutating func phase(_ elapsed: Double, speed: Double) -> Double {
+        if elapsed < lastElapsed { phaseSpeed = nil }
+        if let old = phaseSpeed {
+            if old != speed {
+                phaseBase += (lastElapsed - elapsedBase) * old
+                elapsedBase = lastElapsed
+            }
+        } else {
+            phaseBase = 0
+            elapsedBase = 0
+        }
+        phaseSpeed = speed
+        lastElapsed = elapsed
+        return phaseBase + (elapsed - elapsedBase) * speed
     }
 
     static func render(
