@@ -50,10 +50,7 @@ public struct SinuaCore: View {
     public var color: SinuaColor?
     public var glow: SinuaGlow?
     public var gradient: SinuaGradient?
-    public var holographic: SinuaHolographic?
-    public var liquid: SinuaLiquid?
     public var noise: SinuaNoise?
-    public var particles: SinuaParticles?
     public var pulse: SinuaPulse?
     public var speed: Double
     public var voice: VoiceSource?
@@ -101,10 +98,7 @@ public struct SinuaCore: View {
         color: SinuaColor? = nil,
         glow: SinuaGlow? = nil,
         gradient: SinuaGradient? = nil,
-        holographic: SinuaHolographic? = nil,
-        liquid: SinuaLiquid? = nil,
         noise: SinuaNoise? = nil,
-        particles: SinuaParticles? = nil,
         pulse: SinuaPulse? = nil,
         speed: Double = 1,
         voice: VoiceSource? = nil,
@@ -142,10 +136,7 @@ public struct SinuaCore: View {
         self.color = color
         self.glow = glow
         self.gradient = gradient
-        self.holographic = holographic
-        self.liquid = liquid
         self.noise = noise
-        self.particles = particles
         self.pulse = pulse
         self.speed = speed
         self.voice = voice
@@ -218,10 +209,7 @@ public struct SinuaCore: View {
         color?.write(into: &o)
         glow?.write(into: &o)
         gradient?.write(into: &o)
-        holographic?.write(into: &o)
-        liquid?.write(into: &o)
         noise?.write(into: &o)
-        particles?.write(into: &o)
         pulse?.write(into: &o)
         return o
     }

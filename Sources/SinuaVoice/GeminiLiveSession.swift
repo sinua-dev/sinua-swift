@@ -34,8 +34,16 @@ public final class GeminiLiveSession {
 
     public var onState: ((AgentState) -> Void)?
     public var onInterrupt: (() -> Void)?
+    /// The transcript (design note 39): no times from Gemini, so `none` timing, paced over the
+    /// reply's received audio unless `syncToAudio` is false.
+    public let transcript: TranscriptAssembler
+    public var onTranscript: ((TranscriptUpdate) -> Void)? {
+        get { transcript.onUpdate }
+        set { transcript.onUpdate = newValue }
+    }
 
-    public init(model: String = GeminiLiveSession.defaultModel, instructions: String? = nil) {
+    public init(model: String = GeminiLiveSession.defaultModel, instructions: String? = nil, syncToAudio: Bool = true) {
+        transcript = TranscriptAssembler(timing: .none, sync: syncToAudio)
         self.model = model
         self.instructions = instructions
     }
@@ -71,6 +79,8 @@ public final class GeminiLiveSession {
             "generationConfig": ["responseModalities": ["AUDIO"]],
             // Gemini's own ASR of the user: the vendor-side "the user is being heard" signal.
             "inputAudioTranscription": [String: Any](),
+            // The model's own words, for transcripts (the same Live session; no extra request).
+            "outputAudioTranscription": [String: Any](),
             "sessionResumption": resumptionHandle.map { ["handle": $0] } ?? [String: Any](),
             "contextWindowCompression": ["slidingWindow": [String: Any]()],
         ]
@@ -100,14 +110,18 @@ public final class GeminiLiveSession {
 
     /// A fresh `connect()` starts a fresh session (Web's teardown clears the handle).
     public func reset() {
+        transcript.stop()
         resumptionHandle = nil
         setupDone = false
         generationDone = true
         setState(.idle)
     }
 
-    /// One server frame (text or decoded binary). `playback` is the graph's current state.
-    public func handle(_ text: String, playback: PlaybackState) -> [Action] {
+    /// One server frame (text or decoded binary). `playback` is the graph's current state;
+    /// `now` (seconds) times the transcript.
+    public func handle(
+        _ text: String, playback: PlaybackState, now: TimeInterval = Date().timeIntervalSinceReferenceDate
+    ) -> [Action] {
         guard let data = text.data(using: .utf8),
             let msg = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
         else { return [] }
@@ -122,12 +136,20 @@ public final class GeminiLiveSession {
             if sc["interrupted"] as? Bool == true {
                 // The Live guide: stop playing and clear the queue. A barge-in only if there was output to cut.
                 if state == .speaking || playback != .drained { onInterrupt?() }
+                transcript.cut()
                 actions.append(.clearPlayback(fade: true))
                 generationDone = true
                 setState(.listening)
             }
             if sc["interimInputTranscription"] != nil || sc["inputTranscription"] != nil, state != .speaking {
                 setState(.listening)
+            }
+            if let text = (sc["inputTranscription"] as? [String: Any])?["text"] as? String, !text.isEmpty {
+                if state == .speaking { transcript.hold() }
+                transcript.userDelta(text, now: now * 1000)
+            }
+            if let text = (sc["outputTranscription"] as? [String: Any])?["text"] as? String, !text.isEmpty {
+                transcript.assistantDelta(text, now: now * 1000)
             }
             let parts = ((sc["modelTurn"] as? [String: Any])?["parts"] as? [[String: Any]]) ?? []
             for part in parts {
@@ -136,7 +158,10 @@ public final class GeminiLiveSession {
                     let mime = inline["mimeType"] as? String, mime.hasPrefix("audio/pcm"),
                     let bytes = Data(base64Encoded: b64)
                 else { continue }
-                actions.append(.enqueue(Pcm.pcm16ToFloat(bytes), rate: Pcm.parseRate(mime, fallback: Self.outputRate)))
+                let samples = Pcm.pcm16ToFloat(bytes)
+                let rate = Pcm.parseRate(mime, fallback: Self.outputRate)
+                actions.append(.enqueue(samples, rate: rate))
+                transcript.assistantAudio(Double(samples.count) / Double(rate) * 1000)
                 generationDone = false
                 // Received, not audible yet: tick() promotes to speaking when playback reaches it.
                 if state != .speaking { setState(.thinking) }
@@ -159,9 +184,13 @@ public final class GeminiLiveSession {
         return actions
     }
 
-    /// 30 Hz, only while connected: the playback-timeline gate.
-    public func tick(playback: PlaybackState) {
+    /// 30 Hz, only while connected: the playback-timeline gate; `level` is the played audio's
+    /// (for the transcript).
+    public func tick(
+        playback: PlaybackState, level: Double = 0, now: TimeInterval = Date().timeIntervalSinceReferenceDate
+    ) {
         guard setupDone else { return }
+        transcript.tick(now: now * 1000, level: level, speaking: state == .speaking)
         switch playback {
         case .audible: setState(.speaking)
         case .drained:
@@ -172,6 +201,8 @@ public final class GeminiLiveSession {
 
     private func setState(_ s: AgentState) {
         guard s != state else { return }
+        // The reply is over (drained, cut just before, or a reconnect): its turn ends if it was heard.
+        if s == .listening || s == .initializing || s == .idle { transcript.speakingEnded() }
         state = s
         onState?(s)
     }

@@ -65,8 +65,8 @@ public struct FxPerformance: Equatable, Sendable {
 }
 
 /// The default when low power is on and the spec has no `performance.lowPower` (FX Spec 1.2):
-/// 30 fps, glow and particles off (docs/fx-spec.md's recommended host default).
-public let fxDefaultLowPower = FxPerformance(maxFps: 30, overrides: ["glowStrength": 0, "particleStrength": 0])
+/// 30 fps, glow off (docs/fx-spec.md's recommended host default).
+public let fxDefaultLowPower = FxPerformance(maxFps: 30, overrides: ["glowStrength": 0])
 
 /// The single place FX Spec 1.2's `performance` block is honoured -- same rule as
 /// @sinua/web's `performanceFor`: `specMaxFps` is the resolver's cap for this power

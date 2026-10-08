@@ -37,7 +37,19 @@ public final class ElevenLabsSession {
     public private(set) var state: AgentState = .idle
     private var output = Pcm.AudioFormat(codec: .pcm, rate: 16000)
     private var graphReady = false
-    private var pendingAudio: [(id: Int, b64: String, isFinal: Bool)] = []
+    private var pendingAudio: [(id: Int, b64: String, isFinal: Bool, alignment: [String: Any]?)] = []
+    /// The transcript (design note 39): `chars` timing from each chunk's alignment, synced to
+    /// the played audio unless `syncToAudio` is false; the user's text comes final.
+    public let transcript: TranscriptAssembler
+    public var onTranscript: ((TranscriptUpdate) -> Void)? {
+        get { transcript.onUpdate }
+        set { transcript.onUpdate = newValue }
+    }
+    /// Audio of the current reply queued so far (ms): where the next chunk's alignment starts.
+    private var replyAudioMs = 0.0
+    /// The current reply's text, shown untimed at its end if no chunk carried an alignment.
+    private var replyText = ""
+    private var replyAligned = false
     /// No reply in flight: `agent_response_complete` / a final chunk / an interruption since the last one began.
     private var responseDone = true
     /// The reply was closed this turn: trailing chunks after `complete` don't reopen it;
@@ -51,7 +63,9 @@ public final class ElevenLabsSession {
     public var onState: ((AgentState) -> Void)?
     public var onInterrupt: (() -> Void)?
 
-    public init() {}
+    public init(syncToAudio: Bool = true) {
+        transcript = TranscriptAssembler(timing: .chars, sync: syncToAudio, explicitUserEnd: true)
+    }
 
     /// An agent id -> the public-agent URL; a `wss://…` signed URL (minted by your backend) is used as-is.
     public static func endpoint(credential: String) -> URL? {
@@ -81,7 +95,7 @@ public final class ElevenLabsSession {
     public func graphStarted(output format: Pcm.AudioFormat, now: TimeInterval) -> [Action] {
         output = format
         graphReady = true
-        let flushed = pendingAudio.map { enqueueAction($0.b64, isFinal: $0.isFinal, now: now) }
+        let flushed = pendingAudio.map { enqueueAction($0.b64, isFinal: $0.isFinal, alignment: $0.alignment, now: now) }
         pendingAudio = []
         if state == .initializing { setState(.listening, now: now) }
         return flushed
@@ -98,6 +112,7 @@ public final class ElevenLabsSession {
 
     public func stopped(now: TimeInterval) {
         reset()
+        transcript.stop()
         setState(.idle, now: now)
     }
 
@@ -125,14 +140,16 @@ public final class ElevenLabsSession {
             // Late chunks of an interrupted response: dropped, the SDK's own rule.
             guard id >= lastInterruptEventId, let b64 = a["audio_base_64"] as? String, !b64.isEmpty else { return [] }
             let isFinal = a["is_final"] as? Bool ?? false
+            let alignment = a["alignment"] as? [String: Any]
             if !graphReady {
-                pendingAudio.append((id, b64, isFinal))
+                pendingAudio.append((id, b64, isFinal, alignment))
                 return []
             }
-            return [enqueueAction(b64, isFinal: isFinal, now: now)]
+            return [enqueueAction(b64, isFinal: isFinal, alignment: alignment, now: now)]
         case "agent_response":
             // The reply's text: a reply is under way (its audio may still be coming).
             if !closedThisTurn { responseDone = false }
+            replyText = (ev["agent_response_event"] as? [String: Any])?["agent_response"] as? String ?? ""
             lastAudioAt = now
             return []
         case "agent_response_complete":
@@ -141,6 +158,7 @@ public final class ElevenLabsSession {
         case "interruption":
             if let id = (ev["interruption_event"] as? [String: Any])?["event_id"] as? Int { lastInterruptEventId = id }
             if state == .speaking || playback != .drained || !pendingAudio.isEmpty { onInterrupt?() }
+            transcript.cut()
             pendingAudio = []
             responseDone = true
             closedThisTurn = false
@@ -152,6 +170,7 @@ public final class ElevenLabsSession {
             if speaking, !userSpeaking {
                 userSpeaking = true
                 closedThisTurn = false
+                if state == .speaking { transcript.hold() }
                 if state != .speaking { setState(.listening, now: now) }
             } else if !speaking, userSpeaking {
                 userSpeaking = false
@@ -159,6 +178,8 @@ public final class ElevenLabsSession {
             }
             return []
         case "user_transcript":
+            let text = (ev["user_transcription_event"] as? [String: Any])?["user_transcript"] as? String
+            transcript.userDone(text, now: now * 1000)
             closedThisTurn = false
             if state != .speaking { setState(.thinking, now: now) }
             return []
@@ -168,9 +189,11 @@ public final class ElevenLabsSession {
         }
     }
 
-    /// 30 Hz once the graph is up: the playback-timeline gate + the thinking guard.
-    public func tick(playback: PlaybackState, now: TimeInterval) {
+    /// 30 Hz once the graph is up: the playback-timeline gate + the thinking guard; `level` is
+    /// the played audio's (for the transcript).
+    public func tick(playback: PlaybackState, level: Double = 0, now: TimeInterval) {
         guard graphReady else { return }
+        transcript.tick(now: now * 1000, level: level, speaking: state == .speaking)
         switch playback {
         case .audible: setState(.speaking, now: now)
         case .drained:
@@ -189,9 +212,22 @@ public final class ElevenLabsSession {
         }
     }
 
-    private func enqueueAction(_ b64: String, isFinal: Bool, now: TimeInterval) -> Action {
+    private func enqueueAction(_ b64: String, isFinal: Bool, alignment: [String: Any]?, now: TimeInterval) -> Action {
         let bytes = Data(base64Encoded: b64) ?? Data()
         let samples = output.codec == .ulaw ? Pcm.ulawToFloat(bytes) : Pcm.pcm16ToFloat(bytes)
+        if let al = alignment, let chars = al["chars"] as? [String], !chars.isEmpty,
+            let starts = al["char_start_times_ms"] as? [NSNumber]
+        {
+            replyAligned = true
+            let durations = (al["char_durations_ms"] as? [NSNumber]) ?? []
+            for f in TranscriptAssembler.alignmentFragments(
+                chars: chars, startsMs: starts.map(\.doubleValue), durationsMs: durations.map(\.doubleValue),
+                offsetMs: replyAudioMs)
+            {
+                transcript.assistantDelta(f.text, now: now * 1000, startMs: f.startMs, endMs: f.endMs)
+            }
+        }
+        replyAudioMs += Double(samples.count) / Double(output.rate) * 1000
         lastAudioAt = now
         if isFinal {
             responseDone = true
@@ -210,11 +246,21 @@ public final class ElevenLabsSession {
     private func endResponse(playback: PlaybackState, now: TimeInterval) {
         responseDone = true
         closedThisTurn = true
+        // No chunk carried an alignment: the reply's text, untimed.
+        if !replyAligned, !replyText.isEmpty { transcript.assistantDelta(replyText, now: now * 1000) }
+        replyText = ""
         if state == .thinking, playback == .drained, pendingAudio.isEmpty { setState(.listening, now: now) }
     }
 
     private func setState(_ s: AgentState, now: TimeInterval) {
         guard s != state else { return }
+        // The reply is over (drained, stalled out, or cut just before): its turn ends if it was
+        // heard, and the next reply's audio starts at 0 ms.
+        if s == .listening || s == .idle {
+            transcript.speakingEnded()
+            replyAudioMs = 0
+            replyAligned = false
+        }
         state = s
         if s == .thinking { thinkingSince = now }
         onState?(s)

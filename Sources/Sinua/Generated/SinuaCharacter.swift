@@ -18,15 +18,6 @@ public struct SinuaCharacter: View {
         case beep = "beep"
     }
 
-    /// Eye style.
-    public enum EyeStyle: Int, CaseIterable, Sendable {
-        case auto = 0
-        case shape = 1
-        case glossy = 2
-        case pixel = 3
-        case dot = 4
-    }
-
     public var pattern: Pattern
     public var size: SinuaSize
     /// The agent's lifecycle state ("listening", "speaking", ...). Without a spec it picks the
@@ -53,8 +44,6 @@ public struct SinuaCharacter: View {
     public var eyeR: Double?
     /// The happy arc cut from below the eyes. Range 0...1.
     public var eyeSmile: Double?
-    /// How the eyes are drawn (FX Spec 1.13): `auto` keeps the recipe's; `shape` is the solid shape eye; `glossy` adds an iris and pupil that follow the gaze, highlights that stay with the light and a lid line; `pixel` lights the eye as a grid of cells (and the mouth on a `faceScreen`); `dot` is a soft glowing point. Blinks, the gaze and expressions work in every style.
-    public var eyeStyle: EyeStyle?
     /// Slope of the lid: positive lowers the outer corners (pensive). Range -1...1.
     public var eyeTilt: Double?
     /// Eye width, in the character's 200-unit design box. Range 8...36.
@@ -110,10 +99,7 @@ public struct SinuaCharacter: View {
     public var color: SinuaColor?
     public var glow: SinuaGlow?
     public var gradient: SinuaGradient?
-    public var holographic: SinuaHolographic?
-    public var liquid: SinuaLiquid?
     public var noise: SinuaNoise?
-    public var particles: SinuaParticles?
     public var pulse: SinuaPulse?
     public var speed: Double
     public var voice: VoiceSource?
@@ -139,8 +125,6 @@ public struct SinuaCharacter: View {
     public var expression: String?
     /// The palette, in part (design note 19): slot -> hex, e.g. ["shell": "#E63946"]; empty = the character's own.
     public var palette: [String: String]
-    /// An end user's loadout (FX Spec 1.13, design note 25), with a spec that has a `wardrobe`; nil = the file as it is.
-    public var loadout: SinuaLoadout?
     private var rules = true
     private var spec: String?
     public var inputs: [String: Double] = [:]
@@ -162,7 +146,6 @@ public struct SinuaCharacter: View {
         eyeH: Double? = nil,
         eyeR: Double? = nil,
         eyeSmile: Double? = nil,
-        eyeStyle: EyeStyle? = nil,
         eyeTilt: Double? = nil,
         eyeW: Double? = nil,
         flutterGain: Double? = nil,
@@ -192,10 +175,7 @@ public struct SinuaCharacter: View {
         color: SinuaColor? = nil,
         glow: SinuaGlow? = nil,
         gradient: SinuaGradient? = nil,
-        holographic: SinuaHolographic? = nil,
-        liquid: SinuaLiquid? = nil,
         noise: SinuaNoise? = nil,
-        particles: SinuaParticles? = nil,
         pulse: SinuaPulse? = nil,
         speed: Double = 1,
         voice: VoiceSource? = nil,
@@ -213,8 +193,7 @@ public struct SinuaCharacter: View {
         effect: SinuaEffectTrigger? = nil,
         tap: Bool = true,
         expression: String? = nil,
-        palette: [String: String] = [:],
-        loadout: SinuaLoadout? = nil
+        palette: [String: String] = [:]
     ) {
         self.pattern = pattern
         self.size = size
@@ -230,7 +209,6 @@ public struct SinuaCharacter: View {
         self.eyeH = eyeH
         self.eyeR = eyeR
         self.eyeSmile = eyeSmile
-        self.eyeStyle = eyeStyle
         self.eyeTilt = eyeTilt
         self.eyeW = eyeW
         self.flutterGain = flutterGain
@@ -260,10 +238,7 @@ public struct SinuaCharacter: View {
         self.color = color
         self.glow = glow
         self.gradient = gradient
-        self.holographic = holographic
-        self.liquid = liquid
         self.noise = noise
-        self.particles = particles
         self.pulse = pulse
         self.speed = speed
         self.voice = voice
@@ -282,7 +257,6 @@ public struct SinuaCharacter: View {
         self.tap = tap
         self.expression = expression
         self.palette = palette
-        self.loadout = loadout
     }
 
     /// Plays an FX Spec (JSON). It must describe a character (`"object": "character"`): any other
@@ -310,15 +284,13 @@ public struct SinuaCharacter: View {
         effect: SinuaEffectTrigger? = nil,
         tap: Bool = true,
         expression: String? = nil,
-        palette: [String: String] = [:],
-        loadout: SinuaLoadout? = nil
+        palette: [String: String] = [:]
     ) {
         self.init(pattern: .buzzy, voice: voice, voiceOverrides: voiceOverrides, theme: theme, paused: paused,
                   reducedMotion: reducedMotion, accessibilityLabel: accessibilityLabel, maxFps: maxFps, lowPower: lowPower, onFrame: onFrame,
                   labels: labels, announce: announce, haptics: haptics, effect: effect, tap: tap, expression: expression, palette: palette)
         self.rules = rules
         self.spec = spec
-        self.loadout = loadout
         self.state = state
         self.inputs = inputs
         self.voiceLevelInput = voiceLevelInput
@@ -338,7 +310,6 @@ public struct SinuaCharacter: View {
         if let v = eyeH { o["eyeH"] = v }
         if let v = eyeR { o["eyeR"] = v }
         if let v = eyeSmile { o["eyeSmile"] = v }
-        if let v = eyeStyle { o["eyeStyle"] = Double(v.rawValue) }
         if let v = eyeTilt { o["eyeTilt"] = v }
         if let v = eyeW { o["eyeW"] = v }
         if let v = flutterGain { o["flutterGain"] = v }
@@ -368,10 +339,7 @@ public struct SinuaCharacter: View {
         color?.write(into: &o)
         glow?.write(into: &o)
         gradient?.write(into: &o)
-        holographic?.write(into: &o)
-        liquid?.write(into: &o)
         noise?.write(into: &o)
-        particles?.write(into: &o)
         pulse?.write(into: &o)
         return o
     }
@@ -392,7 +360,7 @@ public struct SinuaCharacter: View {
                 SinuaView(spec: spec, voice: voice, voiceOverrides: voiceOverrides, state: state, inputs: inputs,
                        voiceLevelInput: voiceLevelInput, theme: theme, paused: paused, reducedMotion: reducedMotion,
                        accessibilityLabel: accessibilityLabel, maxFps: maxFps, lowPower: lowPower, onFrame: onFrame,
-                       labels: labels, announce: announce, haptics: haptics, rules: rules, effect: effect, tap: tap, expression: expression, palette: palette, loadout: loadout)
+                       labels: labels, announce: announce, haptics: haptics, rules: rules, effect: effect, tap: tap, expression: expression, palette: palette)
             }
         } else {
             SinuaView(pattern: pattern.rawValue, size: size.rawValue, overrides: overrides(), speed: speed, state: state, inputs: inputs, voice: voice,

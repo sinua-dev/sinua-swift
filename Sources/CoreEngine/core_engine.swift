@@ -731,75 +731,6 @@ public func FfiConverterTypeAnnouncerState_lower(_ value: AnnouncerState) -> Rus
 
 
 /**
- * A cosmetic slot this frame (design note 29, C2): where a dragged item snaps.
- */
-public struct CharacterSlot: Equatable, Hashable {
-    public var name: String
-    public var x: Double
-    public var y: Double
-    public var scale: Double
-    public var angle: Double
-
-    // Default memberwise initializers are never public by default, so we
-    // declare one manually.
-    public init(name: String, x: Double, y: Double, scale: Double, angle: Double) {
-        self.name = name
-        self.x = x
-        self.y = y
-        self.scale = scale
-        self.angle = angle
-    }
-
-    
-
-    
-}
-
-#if compiler(>=6)
-extension CharacterSlot: Sendable {}
-#endif
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeCharacterSlot: FfiConverterRustBuffer {
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CharacterSlot {
-        return
-            try CharacterSlot(
-                name: FfiConverterString.read(from: &buf), 
-                x: FfiConverterDouble.read(from: &buf), 
-                y: FfiConverterDouble.read(from: &buf), 
-                scale: FfiConverterDouble.read(from: &buf), 
-                angle: FfiConverterDouble.read(from: &buf)
-        )
-    }
-
-    public static func write(_ value: CharacterSlot, into buf: inout [UInt8]) {
-        FfiConverterString.write(value.name, into: &buf)
-        FfiConverterDouble.write(value.x, into: &buf)
-        FfiConverterDouble.write(value.y, into: &buf)
-        FfiConverterDouble.write(value.scale, into: &buf)
-        FfiConverterDouble.write(value.angle, into: &buf)
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeCharacterSlot_lift(_ buf: RustBuffer) throws -> CharacterSlot {
-    return try FfiConverterTypeCharacterSlot.lift(buf)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeCharacterSlot_lower(_ value: CharacterSlot) -> RustBuffer {
-    return FfiConverterTypeCharacterSlot.lower(value)
-}
-
-
-/**
  * One instant of a simulated conversation.
  */
 public struct ConversationFrame: Equatable, Hashable {
@@ -2178,136 +2109,6 @@ public func FfiConverterTypeLine_lower(_ value: Line) -> RustBuffer {
 
 
 /**
- * How well liquid suits a state -- for a Studio badge.
- */
-public struct LiquidSuitability: Equatable, Hashable {
-    /**
-     * `"recommended"`, `"ok"` or `"notRecommended"`.
-     */
-    public var level: String
-    public var reason: String
-    /**
-     * The mode's tuned liquid defaults (see `mode_defaults`).
-     */
-    public var defaults: [String: Double]
-
-    // Default memberwise initializers are never public by default, so we
-    // declare one manually.
-    public init(
-        /**
-         * `"recommended"`, `"ok"` or `"notRecommended"`.
-         */level: String, reason: String, 
-        /**
-         * The mode's tuned liquid defaults (see `mode_defaults`).
-         */defaults: [String: Double]) {
-        self.level = level
-        self.reason = reason
-        self.defaults = defaults
-    }
-
-    
-
-    
-}
-
-#if compiler(>=6)
-extension LiquidSuitability: Sendable {}
-#endif
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeLiquidSuitability: FfiConverterRustBuffer {
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LiquidSuitability {
-        return
-            try LiquidSuitability(
-                level: FfiConverterString.read(from: &buf), 
-                reason: FfiConverterString.read(from: &buf), 
-                defaults: FfiConverterDictionaryStringDouble.read(from: &buf)
-        )
-    }
-
-    public static func write(_ value: LiquidSuitability, into buf: inout [UInt8]) {
-        FfiConverterString.write(value.level, into: &buf)
-        FfiConverterString.write(value.reason, into: &buf)
-        FfiConverterDictionaryStringDouble.write(value.defaults, into: &buf)
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeLiquidSuitability_lift(_ buf: RustBuffer) throws -> LiquidSuitability {
-    return try FfiConverterTypeLiquidSuitability.lift(buf)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeLiquidSuitability_lower(_ value: LiquidSuitability) -> RustBuffer {
-    return FfiConverterTypeLiquidSuitability.lower(value)
-}
-
-
-/**
- * [`apply_loadout`]'s result.
- */
-public struct LoadoutApplied: Equatable, Hashable {
-    public var spec: String
-    public var diagnostics: [FxDiagnostic]
-
-    // Default memberwise initializers are never public by default, so we
-    // declare one manually.
-    public init(spec: String, diagnostics: [FxDiagnostic]) {
-        self.spec = spec
-        self.diagnostics = diagnostics
-    }
-
-    
-
-    
-}
-
-#if compiler(>=6)
-extension LoadoutApplied: Sendable {}
-#endif
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeLoadoutApplied: FfiConverterRustBuffer {
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LoadoutApplied {
-        return
-            try LoadoutApplied(
-                spec: FfiConverterString.read(from: &buf), 
-                diagnostics: FfiConverterSequenceTypeFxDiagnostic.read(from: &buf)
-        )
-    }
-
-    public static func write(_ value: LoadoutApplied, into buf: inout [UInt8]) {
-        FfiConverterString.write(value.spec, into: &buf)
-        FfiConverterSequenceTypeFxDiagnostic.write(value.diagnostics, into: &buf)
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeLoadoutApplied_lift(_ buf: RustBuffer) throws -> LoadoutApplied {
-    return try FfiConverterTypeLoadoutApplied.lift(buf)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeLoadoutApplied_lower(_ value: LoadoutApplied) -> RustBuffer {
-    return FfiConverterTypeLoadoutApplied.lower(value)
-}
-
-
-/**
  * One rendered instant: a complete, final set of draw instructions. `dots`
  * is already z-sorted into draw order and radius-clamped; draw order is
  * `polylines`, then `lines`, then `dots`. Named `OrbFrame` for historical
@@ -2545,7 +2346,7 @@ public struct Polyline: Equatable, Hashable {
     /**
      * Per-vertex hue (degrees), one per `points` entry, or empty = the
      * single `hue` for the whole stroke (every mode emits empty). Set by
-     * `apply_gradient`/`apply_holo` only when the vertex hues differ, so a
+     * `apply_gradient` only when the vertex hues differ, so a
      * ring's track sweeps along its length instead of taking one colour.
      * `white`, `a`, `w`, `saturation` stay uniform. Paint contract: see
      * the per-vertex paragraph above. Omitted from JSON when empty.
@@ -2572,7 +2373,7 @@ public struct Polyline: Equatable, Hashable {
         /**
          * Per-vertex hue (degrees), one per `points` entry, or empty = the
          * single `hue` for the whole stroke (every mode emits empty). Set by
-         * `apply_gradient`/`apply_holo` only when the vertex hues differ, so a
+         * `apply_gradient` only when the vertex hues differ, so a
          * ring's track sweeps along its length instead of taking one colour.
          * `white`, `a`, `w`, `saturation` stay uniform. Paint contract: see
          * the per-vertex paragraph above. Omitted from JSON when empty.
@@ -3386,31 +3187,6 @@ fileprivate struct FfiConverterSequenceString: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-fileprivate struct FfiConverterSequenceTypeCharacterSlot: FfiConverterRustBuffer {
-    typealias SwiftType = [CharacterSlot]
-
-    public static func write(_ value: [CharacterSlot], into buf: inout [UInt8]) {
-        let len = Int32(value.count)
-        writeInt(&buf, len)
-        for item in value {
-            FfiConverterTypeCharacterSlot.write(item, into: &buf)
-        }
-    }
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [CharacterSlot] {
-        let len: Int32 = try readInt(&buf)
-        var seq = [CharacterSlot]()
-        seq.reserveCapacity(Int(len))
-        for _ in 0 ..< len {
-            seq.append(try FfiConverterTypeCharacterSlot.read(from: &buf))
-        }
-        return seq
-    }
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
 fileprivate struct FfiConverterSequenceTypeDot: FfiConverterRustBuffer {
     typealias SwiftType = [Dot]
 
@@ -3756,35 +3532,6 @@ public func a11yStateWords(name: String, state: String?, specWords: [String: Str
 })
 }
 /**
- * A loadout applied to an FX Spec (design note 25): the file with the end
- * user's choices in it, and warnings for whatever it no longer offers.
- */
-public func applyLoadout(spec: String, loadout: String) -> LoadoutApplied  {
-    return try!  FfiConverterTypeLoadoutApplied_lift(try! rustCall() {
-        uniffiCallStatus in
-    uniffi_core_engine_fn_func_apply_loadout(
-        FfiConverterString.lower(spec),
-        FfiConverterString.lower(loadout),uniffiCallStatus
-    )
-})
-}
-/**
- * `state`'s cosmetic slots at `t` (a built-in character or a recipe's registry key), in
- * frame units at `size`, following the pose as the drawing does: an app snaps a dropped
- * item to the nearest. Empty for anything that isn't a character.
- */
-public func characterSlots(state: String, size: UInt32, t: Double, overrides: [String: Double]) -> [CharacterSlot]  {
-    return try!  FfiConverterSequenceTypeCharacterSlot.lift(try! rustCall() {
-        uniffiCallStatus in
-    uniffi_core_engine_fn_func_character_slots(
-        FfiConverterString.lower(state),
-        FfiConverterUInt32.lower(size),
-        FfiConverterDouble.lower(t),
-        FfiConverterDictionaryStringDouble.lower(overrides),uniffiCallStatus
-    )
-})
-}
-/**
  * A simulated conversation at `t` seconds (docs/audio-pipeline.md,
  * *Simulated conversations*): the agent state and a speech-like level and
  * `band_count` bands, from a script of turns. A pure function of time, so
@@ -3820,18 +3567,6 @@ public func conversationSampleNames() -> [String]  {
     return try!  FfiConverterSequenceString.lift(try! rustCall() {
         uniffiCallStatus in
     uniffi_core_engine_fn_func_conversation_sample_names(uniffiCallStatus
-    )
-})
-}
-/**
- * What a file's wardrobe offers `character`, for a picker (design note 25).
- */
-public func cosmeticsFor(spec: String, character: String) -> [FxDiagnostic]  {
-    return try!  FfiConverterSequenceTypeFxDiagnostic.lift(try! rustCall() {
-        uniffiCallStatus in
-    uniffi_core_engine_fn_func_cosmetics_for(
-        FfiConverterString.lower(spec),
-        FfiConverterString.lower(character),uniffiCallStatus
     )
 })
 }
@@ -3908,22 +3643,6 @@ public func frameFromFxSpecWith(json: String, elapsed: Double, state: String?, i
         FfiConverterOptionString.lower(state),
         FfiConverterDictionaryStringDouble.lower(inputs),
         FfiConverterBool.lower(lowPower),uniffiCallStatus
-    )
-})
-}
-/**
- * A thumbnail (design note 25): the spec with `loadout` (may be empty) drawn
- * once in a still pose (no glance, no blink) at `turn_yaw` (radians, 0 =
- * facing), without touching the live characters' registry.
- */
-public func frameStill(spec: String, loadout: String, size: UInt32, turnYaw: Double) -> OrbFrame?  {
-    return try!  FfiConverterOptionTypeOrbFrame.lift(try! rustCall() {
-        uniffiCallStatus in
-    uniffi_core_engine_fn_func_frame_still(
-        FfiConverterString.lower(spec),
-        FfiConverterString.lower(loadout),
-        FfiConverterUInt32.lower(size),
-        FfiConverterDouble.lower(turnYaw),uniffiCallStatus
     )
 })
 }
@@ -4051,19 +3770,6 @@ public func fxSpecTransition(json: String, from: String?, to: String?) -> FxTran
 })
 }
 /**
- * Loads a catalog pack (design note 26): `{ "catalog": 1, "namespace": "...",
- * "cosmetics": [...], "palettes": {...} }`. Files then name its items as
- * `"<namespace>:<id>"`. Loading a namespace again replaces it; an error loads nothing.
- */
-public func loadCatalog(json: String) -> [FxDiagnostic]  {
-    return try!  FfiConverterSequenceTypeFxDiagnostic.lift(try! rustCall() {
-        uniffiCallStatus in
-    uniffi_core_engine_fn_func_load_catalog(
-        FfiConverterString.lower(json),uniffiCallStatus
-    )
-})
-}
-/**
  * `palette` (a JSON object: slots or roles -> hex or DTCG colour, `theme`,
  * `dark`; design notes 19, 23) on `pattern`, through the FX Spec's own
  * `palette` rules, so a view and a file paint alike. The dark variant comes
@@ -4075,22 +3781,6 @@ public func paletteOverrides(pattern: String, paletteJson: String) -> FxPaletteR
     uniffi_core_engine_fn_func_palette_overrides(
         FfiConverterString.lower(pattern),
         FfiConverterString.lower(paletteJson),uniffiCallStatus
-    )
-})
-}
-/**
- * Every particle knob's default on `state` -- the engine-wide defaults with
- * the state's own over them (ring states rise, scanning attracts, notifying
- * bursts, speaking follows `audioLevel`, ...; see `particles::mode_defaults`
- * and docs/materials.md). They apply only to keys a caller leaves unset, so
- * the Studio shows them as the knob defaults. `None` only for an unknown
- * state.
- */
-public func particleDefaults(state: String) -> [String: Double]?  {
-    return try!  FfiConverterOptionDictionaryStringDouble.lift(try! rustCall() {
-        uniffiCallStatus in
-    uniffi_core_engine_fn_func_particle_defaults(
-        FfiConverterString.lower(state),uniffiCallStatus
     )
 })
 }
@@ -4196,17 +3886,6 @@ public func transitionMix(from: TransitionSide, to: TransitionSide, size: UInt32
 })
 }
 /**
- * Forgets a catalog pack's items; whether it had any.
- */
-public func unloadCatalog(namespace: String) -> Bool  {
-    return try!  FfiConverterBool.lift(try! rustCall() {
-        uniffiCallStatus in
-    uniffi_core_engine_fn_func_unload_catalog(
-        FfiConverterString.lower(namespace),uniffiCallStatus
-    )
-})
-}
-/**
  * The voice states' weighted mix of one pattern (design note 31): `sides` are the
  * pattern's voice-state sides (profile merged under the app's overrides), `weights`
  * one per side (the view moves them with its transition clock), `target` the index
@@ -4272,12 +3951,6 @@ private let initializationResult: InitializationResult = {
     if (uniffi_core_engine_checksum_func_a11y_state_words() != 27679) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_core_engine_checksum_func_apply_loadout() != 1802) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_core_engine_checksum_func_character_slots() != 33009) {
-        return InitializationResult.apiChecksumMismatch
-    }
     if (uniffi_core_engine_checksum_func_conversation_at() != 56126) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -4285,9 +3958,6 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_core_engine_checksum_func_conversation_sample_names() != 15034) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_core_engine_checksum_func_cosmetics_for() != 48596) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_core_engine_checksum_func_effect_info() != 46267) {
@@ -4303,9 +3973,6 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_core_engine_checksum_func_frame_from_fx_spec_with() != 25757) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_core_engine_checksum_func_frame_still() != 4892) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_core_engine_checksum_func_frame_transition() != 49818) {
@@ -4329,13 +3996,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_core_engine_checksum_func_fx_spec_transition() != 38102) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_core_engine_checksum_func_load_catalog() != 24571) {
-        return InitializationResult.apiChecksumMismatch
-    }
     if (uniffi_core_engine_checksum_func_palette_overrides() != 51677) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_core_engine_checksum_func_particle_defaults() != 6092) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_core_engine_checksum_func_pattern_layout() != 31661) {
@@ -4354,9 +4015,6 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_core_engine_checksum_func_transition_mix() != 22488) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_core_engine_checksum_func_unload_catalog() != 60170) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_core_engine_checksum_func_voice_blend() != 38227) {

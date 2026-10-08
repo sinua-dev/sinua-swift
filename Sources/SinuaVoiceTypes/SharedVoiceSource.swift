@@ -17,6 +17,7 @@ public final class SharedVoiceSource: VoiceSource {
     private var interruptCbs: [Int: () -> Void] = [:]
     private var muteCbs: [Int: (Bool) -> Void] = [:]
     private var connectionCbs: [Int: (Bool) -> Void] = [:]
+    private var transcriptCbs: [Int: (TranscriptUpdate) -> Void] = [:]
 
     /// The source's last reported state (`.idle` before any).
     public private(set) var state: AgentState = .idle
@@ -57,6 +58,11 @@ public final class SharedVoiceSource: VoiceSource {
             guard let self else { return }
             self.connected = c
             for cb in self.connectionCbs.values { cb(c) }
+        }
+        // Subscribed here, at creation: a listener added before `connect()` sees the first turn.
+        source.onTranscript { [weak self] u in
+            guard let self else { return }
+            for cb in self.transcriptCbs.values { cb(u) }
         }
     }
 
@@ -99,12 +105,23 @@ public final class SharedVoiceSource: VoiceSource {
         return { [weak self] in self?.connectionCbs[i] = nil }
     }
 
+    /// Transcript updates (docs/audio-pipeline.md, *Transcripts*), on the main actor. Works
+    /// before `connect()`. Only fires for a source that sends them (`supportsTranscript`).
+    @discardableResult public func listenTranscript(_ cb: @escaping (TranscriptUpdate) -> Void) -> () -> Void {
+        let i = id()
+        transcriptCbs[i] = cb
+        return { [weak self] in self?.transcriptCbs[i] = nil }
+    }
+
     // MARK: - VoiceSource (the `on…` forms add a listener you can't remove)
 
     public func onMetrics(_ cb: @escaping (VoiceMetrics) -> Void) { listenMetrics(cb) }
     public func onStateChange(_ cb: @escaping (AgentState) -> Void) { listenState(cb) }
     public func onInterrupt(_ cb: @escaping () -> Void) { listenInterrupt(cb) }
     public func onConnectionChange(_ cb: @escaping (Bool) -> Void) { listenConnection(cb) }
+    public func onTranscript(_ cb: @escaping (TranscriptUpdate) -> Void) { listenTranscript(cb) }
+    public var supportsTranscript: Bool { source.supportsTranscript }
+    public var transcriptTiming: TranscriptTiming { source.transcriptTiming }
     public var supportsMute: Bool { source.supportsMute }
     public var reportsConnection: Bool { source.reportsConnection }
 

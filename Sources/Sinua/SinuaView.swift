@@ -79,8 +79,7 @@ public struct SinuaView: View {
         effect: SinuaEffectTrigger? = nil,
         tap: Bool = false,
         expression: String? = nil,
-        palette: [String: String] = [:],
-        loadout: SinuaLoadout? = nil
+        palette: [String: String] = [:]
     ) {
         config = FxConfig(
             input: .spec(spec), voice: voice, voiceOverrides: voiceOverrides, specState: state, inputs: inputs,
@@ -88,7 +87,7 @@ public struct SinuaView: View {
             reducedMotion: reducedMotion,
             label: accessibilityLabel, maxFps: maxFps, lowPower: lowPower, onFrame: onFrame,
             labels: labels, announce: announce, haptics: haptics, rules: rules, effect: effect, tap: tap,
-            expression: expression, palette: palette, loadout: loadout
+            expression: expression, palette: palette
         )
     }
 
@@ -321,10 +320,6 @@ struct FxConfig {
     /// A character's palette, in part (design note 19): slot -> hex, e.g. ["body": "#E63946"].
     /// The slots' tones follow; it wins over a spec's `palette`. A change is immediate.
     var palette: [String: String] = [:]
-    /// An end user's loadout (FX Spec 1.13, design note 25), with a spec that has a `wardrobe`.
-    /// A change eases (a hat pops in, colours blend; a cut under reduced motion). What the spec
-    /// no longer offers is skipped with a printed warning, and the rest applies.
-    var loadout: SinuaLoadout?
 
     /// What forces a re-resolve / rebind (the rest is read every frame).
     var key: String {
@@ -427,10 +422,7 @@ final class FxModel: ObservableObject {
     private var resolved:
         (state: String, size: UInt32, speed: Double, presetSpeed: Double, overrides: [String: Double])?
     private var spec: String?
-    /// The spec as given, and the loadout applied to it last (`spec` is the result).
-    private var specFile: String?
-    private var appliedLoadout: SinuaLoadout?
-    /// The spec draws a character (it may name a palette with a dark variant, design note 23).
+    /// The spec draws a character (its palette may have a dark variant, design note 23).
     private var specIsCharacter = false
     private var player = FxStatePlayer()
 
@@ -457,21 +449,6 @@ final class FxModel: ObservableObject {
             overrides: (profile?.overrides ?? [:]).merging(r.overrides) { $1 })
     }
 
-    /// The loadout applied to the spec as given (design note 25); warnings are printed.
-    private func applyLoadout(_ l: SinuaLoadout?) {
-        appliedLoadout = l
-        guard let file = specFile else { return }
-        guard let l else {
-            spec = file
-            return
-        }
-        let r = l.apply(to: file)
-        spec = r.spec
-        if !r.warnings.isEmpty {
-            print("SinuaView loadout:", r.warnings.map { "\($0.path): \($0.message)" }.joined(separator: "; "))
-        }
-    }
-
     /// Re-resolves only when something that needs it changed (FxConfig.key).
     /// Called from draw too, so the view works even where onAppear never fires (ImageRenderer).
     func configureIfNeeded(_ c: FxConfig) {
@@ -479,10 +456,6 @@ final class FxModel: ObservableObject {
         if key == configKey {
             let wordsChanged = config.map { $0.labels != c.labels || $0.announce != c.announce } ?? false
             config = c
-            if c.loadout != appliedLoadout, specFile != nil {
-                applyLoadout(c.loadout)
-                player.wear()
-            }
             if wordsChanged { a11yState = .none }
             refreshA11y()
             play(c.effect, config: c)
@@ -500,10 +473,7 @@ final class FxModel: ObservableObject {
         lastLifecycle = nil
         switch c.input {
         case .spec(let json):
-            specFile = json
-            appliedLoadout = nil
             spec = json
-            applyLoadout(c.loadout)
             specIsCharacter = Self.specObject(json) == "character"
             let r = resolveFxSpec(json: json)
             if r.ok {
@@ -519,7 +489,6 @@ final class FxModel: ObservableObject {
             player.crossFade = c.crossFade
         case .state(let state, let size, let overrides, let speed):
             spec = nil
-            specFile = nil
             specIsCharacter = false
             if let preset = resolvedOpts(state: state, size: size) {
                 resolved = (state, size, speed, preset.speed, overrides)
@@ -929,9 +898,6 @@ struct FxStatePlayer {
 
     /// The rate sums the transition keeps for `pattern` (design note 31); for tests.
     func rateSums(_ pattern: String) -> [String: Double] { transition.rateSums(pattern) }
-
-    /// The loadout changed: ease from what is showing (design note 25).
-    mutating func wear() { transition.wear() }
 
     /// The current state as a transition side (effective speed), or nil if the spec has errors.
     private func side(spec: String, inputs: [String: Double]) -> (TransitionSide, UInt32)? {

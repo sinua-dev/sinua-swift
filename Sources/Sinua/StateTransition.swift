@@ -1,8 +1,6 @@
 import CoreEngine
 import Foundation
 
-/// How long a loadout change takes (design note 25), seconds.
-let wearSeconds = 0.35
 /// The transition clock reaches ~95 % of the way when `ωt ≈ 6.3`: `ω = 6.3 / duration`.
 let lag95 = 6.3
 /// A frame's step is capped here, as the views cap the phase and the inputs.
@@ -53,13 +51,8 @@ struct StateTransition {
     private var size: UInt32 = 64
     private var rates: [String: Rates] = [:]
     private var lastT: Double?
-    /// What was on screen when the loadout last changed, while its change runs.
-    private var wearFrom: TransitionSide?
-    private var wearAge = Double.infinity
     /// Seconds since the last state change (cut or not); infinite before the first.
     private var since = Double.infinity
-    /// The side last drawn.
-    private var shown: TransitionSide?
 
     /// A state change happened: the weights head for the new state from where they are.
     /// `duration` 0 = a cut. `authored`: the file wrote `curve` for this change, so it is
@@ -80,37 +73,20 @@ struct StateTransition {
         }
     }
 
-    /// The loadout changed (design note 25): the character eases from what is on screen now
-    /// (a hat pops in, colours blend, a new eye style swaps in a blink), on its own clock, so a
-    /// state change in the middle of it doesn't cut it, and the reverse.
-    mutating func wear() {
-        guard let shown else { return }
-        wearFrom = shown
-        wearAge = 0
-    }
-
-    /// A loadout change is easing in.
-    var wearing: Bool { wearFrom != nil }
-
     /// Stop any transition now (reduced motion, a new design).
     mutating func cancel() {
         entries = entries.last.map { [Entry($0.side, 1)] } ?? []
         authored = nil
-        wearAge = .infinity
-        wearFrom = nil
     }
 
     /// No transition running: remember `to` as what is on screen.
     mutating func settle(_ to: TransitionSide) {
         if !active { entries = [Entry(to, 1)] }
-        shown = to
     }
 
     mutating func advance(_ dt: Double) {
         let raw = max(0, dt)
         since += raw
-        wearAge += raw
-        if wearAge >= wearSeconds { wearFrom = nil }
         if raw > settleGapSeconds {
             if let t = entries.last { entries = [Entry(t.side, 1)] }
             authored = nil
@@ -202,7 +178,6 @@ struct StateTransition {
         if entries.isEmpty { entries = [Entry(to, 1)] }
         let target = entries.count - 1
         entries[target].side = to
-        shown = to
         var extra = live
         if since.isFinite { extra["stateAge"] = since }
         let dp = tick(t)
@@ -221,17 +196,8 @@ struct StateTransition {
             .prefix(2).map(\.element)
         let blended = drawn.map { blend($0.pattern, $0.idx, size: size, t: t, dp: dp) }
         func with(_ o: [String: Double]) -> [String: Double] { o.merging(extra) { $1 } }
-        let wearFrom = wearFrom
-        let wearW = wearAge / wearSeconds
         func draw(_ pattern: String, _ o: [String: Double]) -> OrbFrame? {
-            if let w = wearFrom,
-                let f = frameTransitionWithOverrides(
-                    from: TransitionSide(state: w.state, speed: w.speed, overrides: w.overrides.merging(extra) { $1 }),
-                    to: TransitionSide(state: pattern, speed: 1, overrides: with(o)), size: size, t: t, blend: wearW)
-            {
-                return f
-            }
-            return frameWithOverrides(state: pattern, size: size, t: t, overrides: with(o))
+            frameWithOverrides(state: pattern, size: size, t: t, overrides: with(o))
         }
         if drawn.count == 1 {
             let (m, o) = blended[0]

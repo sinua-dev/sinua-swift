@@ -31,7 +31,7 @@ public final class ElevenLabsVoiceSource: VoiceSource {
     private let credentials: CredentialSource
     private let endpoint: URL?
     private let overrides: [String: Any]?
-    private let session = ElevenLabsSession()
+    private let session: ElevenLabsSession
     private let graph: PcmAudioGraph
     private let socketFactory: LiveSocketFactory
     private let requestPermission: () async -> Bool
@@ -50,16 +50,20 @@ public final class ElevenLabsVoiceSource: VoiceSource {
     ///     `.value(…)` for a public agent id or one signed URL.
     ///   - overrides: `conversation_config_override` (if the agent allows overrides).
     ///   - endpoint: override the URL (a relay, or tests); the credential is ignored then.
+    ///   - syncToAudio: transcripts reveal the agent's text with the played audio, character by
+    ///     character (default); `false` shows it as it arrives.
     public init(
         credential: CredentialSource,
         overrides: [String: Any]? = nil,
         endpoint: URL? = nil,
+        syncToAudio: Bool = true,
         device: PcmAudioDevice = AVPcmAudioDevice(),
         socketFactory: LiveSocketFactory = URLSessionLiveSocketFactory(),
         requestPermission: @escaping () async -> Bool = AVPcmAudioDevice.requestPermission,
         clock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
     ) {
         credentials = credential
+        session = ElevenLabsSession(syncToAudio: syncToAudio)
         self.endpoint = endpoint
         self.overrides = overrides
         graph = PcmAudioGraph(device: device)
@@ -73,19 +77,21 @@ public final class ElevenLabsVoiceSource: VoiceSource {
         credential: String,
         overrides: [String: Any]? = nil,
         endpoint: URL? = nil,
+        syncToAudio: Bool = true,
         device: PcmAudioDevice = AVPcmAudioDevice(),
         socketFactory: LiveSocketFactory = URLSessionLiveSocketFactory(),
         requestPermission: @escaping () async -> Bool = AVPcmAudioDevice.requestPermission,
         clock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
     ) {
         self.init(
-            credential: .value(credential), overrides: overrides, endpoint: endpoint, device: device,
+            credential: .value(credential), overrides: overrides, endpoint: endpoint, syncToAudio: syncToAudio,
+            device: device,
             socketFactory: socketFactory, requestPermission: requestPermission, clock: clock)
     }
 
     /// Your backend's endpoint, answering `{ credential: "wss://…", expiresAt? }`; asked on every connect.
-    public convenience init(credentialUrl: URL, overrides: [String: Any]? = nil) {
-        self.init(credential: .url(credentialUrl), overrides: overrides)
+    public convenience init(credentialUrl: URL, overrides: [String: Any]? = nil, syncToAudio: Bool = true) {
+        self.init(credential: .url(credentialUrl), overrides: overrides, syncToAudio: syncToAudio)
     }
 
     private var connectionCb: ((Bool) -> Void)?
@@ -94,6 +100,10 @@ public final class ElevenLabsVoiceSource: VoiceSource {
     public func onMetrics(_ cb: @escaping (VoiceMetrics) -> Void) { metricsCb = cb }
     public func onStateChange(_ cb: @escaping (AgentState) -> Void) { session.onState = cb }
     public func onInterrupt(_ cb: @escaping () -> Void) { session.onInterrupt = cb }
+    /// Both speakers' live transcript (design note 39); display only, nothing is kept or sent.
+    public func onTranscript(_ cb: @escaping (TranscriptUpdate) -> Void) { session.onTranscript = cb }
+    public var supportsTranscript: Bool { true }
+    public var transcriptTiming: TranscriptTiming { .chars }
     public func onConnectionChange(_ cb: @escaping (Bool) -> Void) { connectionCb = cb }
     public var reportsConnection: Bool { true }
     public var supportsMute: Bool { true }
@@ -241,8 +251,9 @@ public final class ElevenLabsVoiceSource: VoiceSource {
     }
 
     private func tick() {
-        if let m = graph.read() { metricsCb?(m) }
-        session.tick(playback: graph.playbackState(), now: clock())
+        let m = graph.read()
+        if let m { metricsCb?(m) }
+        session.tick(playback: graph.playbackState(), level: m?.level ?? 0, now: clock())
     }
 
     private func teardown() {

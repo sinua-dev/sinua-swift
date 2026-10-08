@@ -66,8 +66,29 @@ public final class LiveKitAgentTracker {
     public var onState: ((AgentState) -> Void)?
     public var onInterrupt: (() -> Void)?
     public var onMetrics: ((VoiceMetrics) -> Void)?
+    /// The transcript (design note 39) from the agent's `lk.transcription` text streams, which
+    /// the agent already syncs to its speech and truncates on a barge-in: `synced` timing.
+    public let transcript = TranscriptAssembler(timing: .synced, sync: true)
+    public var onTranscript: ((TranscriptUpdate) -> Void)? {
+        get { transcript.onUpdate }
+        set { transcript.onUpdate = newValue }
+    }
 
     public init() {}
+
+    /// An `lk.transcription` stream's text so far, from `identity` (`local`: the user's own).
+    /// Streams from anyone but the user, the agent or its workers are ignored. `key` is the
+    /// stream's `lk.segment_id`; `final` its `lk.transcription_final` once the stream ended.
+    public func transcription(
+        identity: String, isAgentKind: Bool, attributes: [String: String], local: Bool,
+        key: String, text: String, final: Bool, now: Double
+    ) {
+        if local {
+            transcript.segment(.user, key: key, text: text, final: final, now: now)
+        } else if role(identity: identity, isAgentKind: isAgentKind, attributes: attributes) != .other {
+            transcript.segment(.assistant, key: key, text: text, final: final, now: now)
+        }
+    }
 
     /// Connected (or connecting): `initializing` until an agent shows up.
     public func start() {
@@ -76,6 +97,7 @@ public final class LiveKitAgentTracker {
     }
 
     public func stop() {
+        transcript.stop()
         running = false
         agentIdentity = nil
         agentStateSeen = false
@@ -123,7 +145,10 @@ public final class LiveKitAgentTracker {
             let s = LiveKitAgent.agentState(fromAttributes: attributes)
         {
             agentStateSeen = true
-            if LiveKitAgent.isInferredBargeIn(prev: state, next: s, userSpeaking: localSpeaking) { onInterrupt?() }
+            if LiveKitAgent.isInferredBargeIn(prev: state, next: s, userSpeaking: localSpeaking) {
+                onInterrupt?()
+                transcript.cut()
+            }
             setState(s)
         }
         return role(identity: identity, isAgentKind: isAgentKind, attributes: attributes)
@@ -154,11 +179,12 @@ public final class LiveKitAgentTracker {
     }
 
     /// 30 Hz on main: drain -> spectrum -> metrics; the energy fallback until a state is seen.
-    public func tick() {
+    public func tick(now: Double = Date().timeIntervalSinceReferenceDate * 1000) {
         guard hasAudio else { return }
         spectrum.push(ring.drain())
         let m = analysis.read(spectrum.byteFrequencyData())
         onMetrics?(m)
+        transcript.tick(now: now, level: m.level, speaking: state == .speaking)
         if running, agentIdentity != nil, !agentStateSeen {
             setState(m.level > Self.speakingLevel ? .speaking : .listening)
         }
@@ -166,6 +192,8 @@ public final class LiveKitAgentTracker {
 
     private func setState(_ s: AgentState) {
         guard s != state else { return }
+        // The agent stopped talking: its turn ends with what it sent (cut just before on a barge-in).
+        if state == .speaking { transcript.speakingEnded() }
         state = s
         onState?(s)
     }

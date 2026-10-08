@@ -25,7 +25,6 @@ public struct SinuaOrb: View {
         case initializing = "initializing"
         case calibrating = "calibrating"
         case progressing = "progressing"
-        case concluding = "concluding"
         case muted = "muted"
         case silhouette = "silhouette"
     }
@@ -54,10 +53,8 @@ public struct SinuaOrb: View {
     public var dim: Double?
     /// Brightness of the dots the scan hasn't reached. Range 0...1 (fraction). Patterns: searching.
     public var dimBase: Double?
-    /// Dot radius. Range speaking 0...6, concluding 0...6, silhouette 0...4. Patterns: speaking, concluding, silhouette.
+    /// Dot radius. Range speaking 0...6, silhouette 0...4. Patterns: speaking, silhouette.
     public var dotSize: Double?
-    /// How far dots drift before they lock into the lattice. Range 0...2 (fraction). Patterns: concluding.
-    public var driftAmplitude: Double?
     /// Trailing echo rings per ping. Range 0...8. Patterns: confirming.
     public var echoCount: Int?
     /// Gap between echo rings, as a fraction of the cycle. Range 0...1 (fraction). Patterns: confirming.
@@ -102,8 +99,6 @@ public struct SinuaOrb: View {
     public var latRings: Int?
     /// Stroke width of the links. Range 0...4. Patterns: connecting, drifting.
     public var lineW: Double?
-    /// Stroke width of the lattice links. Range 0...4. Patterns: concluding.
-    public var lineWidth: Double?
     /// Dots around the equator; other rings scale with their circumference. Range 4...200. Patterns: searching, solving, listening.
     public var lonDensity: Double?
     /// Layer turns in one solve cycle. Range 1...64. Patterns: solving.
@@ -128,7 +123,7 @@ public struct SinuaOrb: View {
     public var partR: Double?
     /// Extra particle radius when nearest the viewer (depth cue). Range 0...6. Patterns: working.
     public var partRDepth: Double?
-    /// Seconds between sonar pings. Range confirming 0.05...30, initializing 0.05...30, concluding 0.5...60, muted 0.05...30, silhouette 0.05...30. Patterns: confirming, initializing, concluding, muted, silhouette.
+    /// Seconds between sonar pings. Range 0.05...30 (s). Patterns: confirming, initializing, muted, silhouette.
     public var period: Double?
     /// How far the eclipse has advanced, 0 to 1. Range 0...1 (fraction). Patterns: progressing.
     public var progress: Double?
@@ -199,10 +194,7 @@ public struct SinuaOrb: View {
     public var color: SinuaColor?
     public var glow: SinuaGlow?
     public var gradient: SinuaGradient?
-    public var holographic: SinuaHolographic?
-    public var liquid: SinuaLiquid?
     public var noise: SinuaNoise?
-    public var particles: SinuaParticles?
     public var pulse: SinuaPulse?
     public var speed: Double
     public var voice: VoiceSource?
@@ -243,7 +235,6 @@ public struct SinuaOrb: View {
         dim: Double? = nil,
         dimBase: Double? = nil,
         dotSize: Double? = nil,
-        driftAmplitude: Double? = nil,
         echoCount: Int? = nil,
         echoSpacing: Double? = nil,
         faceOn: Bool? = nil,
@@ -266,7 +257,6 @@ public struct SinuaOrb: View {
         lanes: Double? = nil,
         latRings: Int? = nil,
         lineW: Double? = nil,
-        lineWidth: Double? = nil,
         lonDensity: Double? = nil,
         moveCount: Int? = nil,
         neuron: Double? = nil,
@@ -316,10 +306,7 @@ public struct SinuaOrb: View {
         color: SinuaColor? = nil,
         glow: SinuaGlow? = nil,
         gradient: SinuaGradient? = nil,
-        holographic: SinuaHolographic? = nil,
-        liquid: SinuaLiquid? = nil,
         noise: SinuaNoise? = nil,
-        particles: SinuaParticles? = nil,
         pulse: SinuaPulse? = nil,
         speed: Double = 1,
         voice: VoiceSource? = nil,
@@ -350,7 +337,6 @@ public struct SinuaOrb: View {
         self.dim = dim
         self.dimBase = dimBase
         self.dotSize = dotSize
-        self.driftAmplitude = driftAmplitude
         self.echoCount = echoCount
         self.echoSpacing = echoSpacing
         self.faceOn = faceOn
@@ -373,7 +359,6 @@ public struct SinuaOrb: View {
         self.lanes = lanes
         self.latRings = latRings
         self.lineW = lineW
-        self.lineWidth = lineWidth
         self.lonDensity = lonDensity
         self.moveCount = moveCount
         self.neuron = neuron
@@ -423,10 +408,7 @@ public struct SinuaOrb: View {
         self.color = color
         self.glow = glow
         self.gradient = gradient
-        self.holographic = holographic
-        self.liquid = liquid
         self.noise = noise
-        self.particles = particles
         self.pulse = pulse
         self.speed = speed
         self.voice = voice
@@ -492,7 +474,6 @@ public struct SinuaOrb: View {
         if let v = dim { o["dim"] = v }
         if let v = dimBase { o["dimBase"] = v }
         if let v = dotSize { o["dotSize"] = v }
-        if let v = driftAmplitude { o["driftAmplitude"] = v }
         if let v = echoCount { o["echoCount"] = Double(v) }
         if let v = echoSpacing { o["echoSpacing"] = v }
         if let v = faceOn { o["faceOn"] = v ? 1 : 0 }
@@ -515,7 +496,6 @@ public struct SinuaOrb: View {
         if let v = lanes { o["lanes"] = v }
         if let v = latRings { o["latRings"] = Double(v) }
         if let v = lineW { o["lineW"] = v }
-        if let v = lineWidth { o["lineWidth"] = v }
         if let v = lonDensity { o["lonDensity"] = v }
         if let v = moveCount { o["moveCount"] = Double(v) }
         if let v = neuron { o["neuron"] = v }
@@ -565,10 +545,7 @@ public struct SinuaOrb: View {
         color?.write(into: &o)
         glow?.write(into: &o)
         gradient?.write(into: &o)
-        holographic?.write(into: &o)
-        liquid?.write(into: &o)
         noise?.write(into: &o)
-        particles?.write(into: &o)
         pulse?.write(into: &o)
         return o
     }

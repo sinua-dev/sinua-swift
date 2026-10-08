@@ -54,12 +54,15 @@ public final class GeminiLiveVoiceSource: VoiceSource {
     ///   - instructions: deprecated -- set them when your backend mints the token, which locks them.
     ///   - endpoint: override the Google URL (a relay your backend runs, or tests); the
     ///     token's `Authorization` header is still added.
+    ///   - syncToAudio: transcripts pace the model's text over its played audio (default); `false`
+    ///     shows it as it arrives.
     ///   - device: the audio stack; `AVPcmAudioDevice()` (echo-cancelled mic + player) by default.
     public init(
         credential: CredentialSource,
         model: String = GeminiLiveSession.defaultModel,
         instructions: String? = nil,
         endpoint: GeminiLiveSession.Endpoint? = nil,
+        syncToAudio: Bool = true,
         device: PcmAudioDevice = AVPcmAudioDevice(),
         socketFactory: LiveSocketFactory = URLSessionLiveSocketFactory(),
         requestPermission: @escaping () async -> Bool = AVPcmAudioDevice.requestPermission
@@ -71,7 +74,7 @@ public final class GeminiLiveVoiceSource: VoiceSource {
                 "GeminiLiveVoiceSource: `instructions` is deprecated -- set them when your backend mints the token "
                     + "(mintGeminiLiveCredential from @sinua/voice/server), which locks them.")
         }
-        session = GeminiLiveSession(model: model, instructions: instructions)
+        session = GeminiLiveSession(model: model, instructions: instructions, syncToAudio: syncToAudio)
         graph = PcmAudioGraph(device: device)
         self.socketFactory = socketFactory
         self.requestPermission = requestPermission
@@ -83,25 +86,29 @@ public final class GeminiLiveVoiceSource: VoiceSource {
         model: String = GeminiLiveSession.defaultModel,
         instructions: String? = nil,
         endpoint: GeminiLiveSession.Endpoint? = nil,
+        syncToAudio: Bool = true,
         device: PcmAudioDevice = AVPcmAudioDevice(),
         socketFactory: LiveSocketFactory = URLSessionLiveSocketFactory(),
         requestPermission: @escaping () async -> Bool = AVPcmAudioDevice.requestPermission
     ) {
         self.init(
             credential: .value(credential), model: model, instructions: instructions, endpoint: endpoint,
-            device: device, socketFactory: socketFactory, requestPermission: requestPermission)
+            syncToAudio: syncToAudio, device: device, socketFactory: socketFactory, requestPermission: requestPermission
+        )
     }
 
     /// Your backend's endpoint, answering `{ credential, expiresAt? }`; asked on every (re)connect.
     public convenience init(
         credentialUrl: URL,
         model: String = GeminiLiveSession.defaultModel,
+        syncToAudio: Bool = true,
         device: PcmAudioDevice = AVPcmAudioDevice(),
         socketFactory: LiveSocketFactory = URLSessionLiveSocketFactory(),
         requestPermission: @escaping () async -> Bool = AVPcmAudioDevice.requestPermission
     ) {
         self.init(
-            credential: .url(credentialUrl), model: model, device: device, socketFactory: socketFactory,
+            credential: .url(credentialUrl), model: model, syncToAudio: syncToAudio, device: device,
+            socketFactory: socketFactory,
             requestPermission: requestPermission)
     }
 
@@ -111,6 +118,10 @@ public final class GeminiLiveVoiceSource: VoiceSource {
     public func onMetrics(_ cb: @escaping (VoiceMetrics) -> Void) { metricsCb = cb }
     public func onStateChange(_ cb: @escaping (AgentState) -> Void) { session.onState = cb }
     public func onInterrupt(_ cb: @escaping () -> Void) { session.onInterrupt = cb }
+    /// Both speakers' live transcript (design note 39); display only, nothing is kept or sent.
+    public func onTranscript(_ cb: @escaping (TranscriptUpdate) -> Void) { session.onTranscript = cb }
+    public var supportsTranscript: Bool { true }
+    public var transcriptTiming: TranscriptTiming { .none }
     public func onConnectionChange(_ cb: @escaping (Bool) -> Void) { connectionCb = cb }
     public var reportsConnection: Bool { true }
     public var supportsMute: Bool { true }
@@ -302,8 +313,9 @@ public final class GeminiLiveVoiceSource: VoiceSource {
     }
 
     private func tick() {
-        if let m = graph.read() { metricsCb?(m) }
-        if !reconnecting { session.tick(playback: graph.playbackState()) }
+        let m = graph.read()
+        if let m { metricsCb?(m) }
+        if !reconnecting { session.tick(playback: graph.playbackState(), level: m?.level ?? 0) }
     }
 
     private func teardown() {

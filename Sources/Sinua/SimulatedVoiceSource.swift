@@ -59,6 +59,11 @@ public final class SimulatedVoiceSource: VoiceSource {
     private var stateCb: ((AgentState) -> Void)?
     private var interruptCb: (() -> Void)?
     private var frameCb: ((ConversationFrame) -> Void)?
+    private var transcriptCb: ((TranscriptUpdate) -> Void)?
+    /// The turn being transcribed (`turn` is the script's index) and the counters that name turns.
+    private var said: (turn: Int, id: String, role: TranscriptUpdate.Role, text: String)?
+    private var userTurns = 0
+    private var assistantTurns = 0
     private var connectionCb: ((Bool) -> Void)?
     private var muted = false
 
@@ -109,6 +114,12 @@ public final class SimulatedVoiceSource: VoiceSource {
     /// Every tick's full reading (turn, progress, the line said so far), for captions and a timeline.
     public func onFrame(_ cb: @escaping (ConversationFrame) -> Void) { frameCb = cb }
 
+    /// Transcript updates: each turn's line as it is said (`synced`); a turn cut by a barge-in
+    /// ends `truncated`. Muted user turns say nothing. Main thread.
+    public func onTranscript(_ cb: @escaping (TranscriptUpdate) -> Void) { transcriptCb = cb }
+    public var supportsTranscript: Bool { true }
+    public var transcriptTiming: TranscriptTiming { .synced }
+
     /// Starts playing from the current time. Never asks for a microphone.
     public func connect() async throws {
         await MainActor.run {
@@ -124,6 +135,7 @@ public final class SimulatedVoiceSource: VoiceSource {
 
     public func disconnect() {
         let stop = { [self] in
+            close(cut: false)
             let was = connected
             connected = false
             if was { connectionCb?(false) }
@@ -181,7 +193,10 @@ public final class SimulatedVoiceSource: VoiceSource {
             let entering = lastTurn != -1 && f.bargeIn
             lastTurn = Int(f.turn)
             if entering { interruptCb?() }
+            // The turn that was being said ends: cut short by a barge-in, or said in full.
+            if let s = said, s.turn != Int(f.turn) { close(cut: entering) }
         }
+        transcribe(f)
         if f.state != lastState {
             lastState = f.state
             stateCb?(AgentState(rawValue: f.state) ?? .idle)
@@ -192,5 +207,49 @@ public final class SimulatedVoiceSource: VoiceSource {
             metricsCb?(VoiceMetrics(level: f.level, bands: f.bands))
         }
         frameCb?(f)
+    }
+
+    /// Speaker of a turn: its `voice`, else what its state implies (listening = the user).
+    private func role(_ turn: Int, _ state: String) -> TranscriptUpdate.Role? {
+        let voice = turns.indices.contains(turn) ? turns[turn].voice : nil
+        if voice == "user" { return .user }
+        if voice == "agent" { return .assistant }
+        if state == "speaking" { return .assistant }
+        if state == "listening" { return .user }
+        return nil
+    }
+
+    private func transcribe(_ f: ConversationFrame) {
+        guard let cb = transcriptCb, let role = role(Int(f.turn), f.state), !f.line.isEmpty else { return }
+        if role == .user, muted { return }
+        let scalars = f.line.precomposedStringWithCanonicalMapping.unicodeScalars
+        var view = String.UnicodeScalarView()
+        view.append(contentsOf: scalars.prefix(Int(f.shown)))
+        let text = String(view)
+        if said == nil {
+            guard !text.isEmpty else { return }
+            if role == .user {
+                userTurns += 1
+                said = (Int(f.turn), "u\(userTurns)", role, "")
+            } else {
+                assistantTurns += 1
+                said = (Int(f.turn), "a\(assistantTurns)", role, "")
+            }
+        }
+        guard var s = said, text != s.text else { return }
+        s.text = text
+        said = s
+        cb(TranscriptUpdate(role: role, text: text, final: false, turnId: s.id))
+    }
+
+    /// Ends the turn being said: `cut` by a barge-in (what was said so far), else in full.
+    private func close(cut: Bool) {
+        guard let s = said else { return }
+        said = nil
+        guard let cb = transcriptCb else { return }
+        let full = turns.indices.contains(s.turn) ? turns[s.turn].line.precomposedStringWithCanonicalMapping : ""
+        let truncated = cut && s.role == .assistant
+        let text = (truncated ? s.text : full).trimmingCharacters(in: .whitespacesAndNewlines)
+        cb(TranscriptUpdate(role: s.role, text: text, final: true, turnId: s.id, truncated: truncated))
     }
 }

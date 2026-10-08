@@ -10,7 +10,8 @@ import Foundation
 /// its nested terminal Responses event, the `session.commentary.appended` that delivers a
 /// client delegation's result -- it carries no `delegation_id`, so the oldest open client
 /// delegation closes -- or 30 s without news); user speech over the model's audio
-/// that stops it within 1 s is a barge-in (full duplex: a "mhm" under continuing speech isn't).
+/// that stops it within 1 s of the user's latest words is a barge-in (full duplex: a "mhm" under
+/// continuing speech isn't, and the model may talk on for a while before it stops).
 public final class OpenAILiveSession {
     public static let speakingLevel = 0.05
     /// Speaking ends after a quiet tail that grows with how long the agent has been speaking
@@ -40,6 +41,14 @@ public final class OpenAILiveSession {
     public var onState: ((AgentState) -> Void)?
     public var onInterrupt: (() -> Void)?
     public var onClosed: ((String) -> Void)?
+    /// The transcript (design note 39): `segments` timing, reveal synced to the audio unless
+    /// `syncToAudio` is false.
+    public let transcript: TranscriptAssembler
+    /// Transcript updates for both speakers (see `TranscriptAssembler`).
+    public var onTranscript: ((TranscriptUpdate) -> Void)? {
+        get { transcript.onUpdate }
+        set { transcript.onUpdate = newValue }
+    }
 
     private var quietFrames = 0
     /// When the current speaking stretch began (ms).
@@ -50,7 +59,9 @@ public final class OpenAILiveSession {
     private var delegations: [String: (at: Double, order: Int, client: Bool)] = [:]
     private var opened = 0
 
-    public init() {}
+    public init(syncToAudio: Bool = true) {
+        transcript = TranscriptAssembler(timing: .segments, sync: syncToAudio)
+    }
 
     public func connecting() {
         reset()
@@ -74,7 +85,19 @@ public final class OpenAILiveSession {
             isStarted = true
             setState(.listening)
         case "session.input_transcript.delta":
-            if state == .speaking, bargeInAt == nil { bargeInAt = now }
+            // The window runs from the user's latest words: in full duplex the model may talk on for
+            // a while after the user started, and stop only later (seen live, design note 39).
+            if state == .speaking { bargeInAt = now }
+            if state == .speaking { transcript.hold() }
+            if let d = ev["delta"] as? String {
+                transcript.userDelta(
+                    d, now: now, startMs: Self.number(ev["start_ms"]), endMs: Self.number(ev["end_ms"]))
+            }
+        case "session.output_transcript.delta":
+            if let d = ev["delta"] as? String {
+                transcript.assistantDelta(
+                    d, now: now, startMs: Self.number(ev["start_ms"]), endMs: Self.number(ev["end_ms"]))
+            }
         case "session.delegation.created":
             if let d = ev["delegation"] as? [String: Any], let id = d["id"] as? String {
                 open(id, now, client: d["target"] as? String == "client")
@@ -116,15 +139,19 @@ public final class OpenAILiveSession {
             quietFrames += 1
             let userSpoke = bargeInAt.map { now - $0 <= Self.bargeInWindowMs } ?? false
             let tail = userSpoke ? Self.bargeInTailFrames : Self.speakingTail(ms: now - speakingSince)
-            guard quietFrames >= tail else { return }
-            let armed = bargeInAt
-            bargeInAt = nil
-            quietFrames = 0
-            setState(delegations.isEmpty ? .listening : .thinking)
-            if let armed, now - armed <= Self.bargeInWindowMs { onInterrupt?() }
+            if quietFrames >= tail {
+                let armed = bargeInAt
+                bargeInAt = nil
+                quietFrames = 0
+                let interrupted = armed.map { now - $0 <= Self.bargeInWindowMs } ?? false
+                if interrupted { transcript.cut() } else { transcript.speakingEnded() }
+                setState(delegations.isEmpty ? .listening : .thinking)
+                if interrupted { onInterrupt?() }
+            }
         } else {
             settle()
         }
+        transcript.tick(now: now, level: level, speaking: state == .speaking)
     }
 
     private func open(_ id: String, _ now: Double, client: Bool) {
@@ -148,6 +175,7 @@ public final class OpenAILiveSession {
     }
 
     private func reset() {
+        transcript.stop()
         isStarted = false
         sessionId = nil
         fatalCode = nil
@@ -155,6 +183,13 @@ public final class OpenAILiveSession {
         quietFrames = 0
         bargeInAt = nil
         delegations.removeAll()
+    }
+
+    /// A JSON number (never a JSON `true`/`false`: a bridged `0`/`1` passes `is Bool`, so test the CF type).
+    private static func number(_ v: Any?) -> Double? {
+        guard let n = v as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID() else { return nil }
+        let d = n.doubleValue
+        return d.isFinite ? d : nil
     }
 
     /// The quiet ticks that end a speaking stretch `ms` long (the constants above).
