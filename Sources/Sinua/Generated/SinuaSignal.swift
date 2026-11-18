@@ -4,16 +4,21 @@
 import SwiftUI
 import SinuaVoiceTypes
 
-/// Signal, typed: `SinuaSignal(pattern: .signaling)` plus any of its parameters.
+/// Signal, typed: `SinuaSignal(pattern: .veil)` plus any of its parameters.
 /// A thin wrapper over `SinuaView` (no painting of its own): typed props become engine overrides,
 /// or `init(spec:)` plays an FX Spec that must describe a signal.
 public struct SinuaSignal: View {
     public enum Pattern: String, CaseIterable, Sendable {
-        case signaling = "signaling"
-        case waveform = "waveform"
-        case scrolling = "scrolling"
-        case metering = "metering"
-        case playing = "playing"
+        case veil = "veil"
+        case crystal = "crystal"
+        case dune = "dune"
+        case comet = "comet"
+        case flow = "flow"
+        case cohesion = "cohesion"
+        case scan = "scan"
+        case constellation = "constellation"
+        case ripple = "ripple"
+        case broadcast = "broadcast"
     }
 
     public var pattern: Pattern
@@ -22,46 +27,26 @@ public struct SinuaSignal: View {
     /// built-in voice-state behaviour for this pattern, under your own parameters; with a
     /// `spec` it picks that file's `states` entry. With a `voice`, it defaults to the source's state.
     public var state: String?
-    /// Peak wave height as a fraction of the frame. Range 0...0.5 (fraction). Patterns: waveform.
-    public var amplitude: Double?
-    /// Number of level bars. Range signaling 1...64, playing 0...128. Patterns: signaling, playing.
-    public var barCount: Int?
-    /// Bar width as a fraction of each slot. Range 0.05...1 (fraction). Patterns: signaling, scrolling, playing.
-    public var barWidth: Double?
-    /// LED columns. Range 1...32. Patterns: metering.
+    /// How many points the scan has found, 0 to 12: each flashes white as the beam reaches it and burns down. Range 0...12. Patterns: scan.
+    public var blips: Int?
+    /// Restless work, 0 to 1: the sheet keeps moving with no level (thinking, processing). Range 0...1 (fraction).
+    public var churn: Double?
+    /// Columns of cells, one per band or value. Range 4...24. Patterns: crystal.
     public var columnCount: Int?
-    /// The recorded clip's loudness, oldest first, 0 to 1 per value (up to 64; resample longer clips). Without it a fixed sample message is drawn. Range 0...1 (fraction). Up to 64 values. Patterns: playing.
+    /// The dune's profile, 0 to 1 per value (a clip's loudness or any series; up to 64). Without it a fixed dune is drawn. Range 0...1 (fraction). Up to 64 values. Patterns: dune.
     public var envelope: [Double]?
-    /// Width of the fade at the edges, as a fraction of the frame. Range 0.01...1 (fraction). Patterns: scrolling.
-    public var fadeWidth: Double?
-    /// Ink hue in degrees; applies once saturation is above 0. Range 0...360 (deg).
-    public var hue: Double?
     /// How present the whole visual is: 1 draws it as the pattern defines it, lower fades everything including its halos. A voice assistant rests below 1 when idle and comes to full ink when it listens. Range 0...1 (fraction).
     public var ink: Double?
-    /// Stacked waveform layers (fainter behind). Range 1...6. Patterns: waveform.
+    /// Sheets of light, front to back. Range 3...12. Patterns: veil.
     public var layerCount: Int?
-    /// LEDs per column. Range 2...24. Patterns: metering.
-    public var ledCount: Int?
-    /// LED size as a fraction of its cell. Range 0.2...1 (fraction). Patterns: metering.
-    public var ledSize: Double?
-    /// Stroke width as a fraction of the frame. Range 0.005...0.2 (fraction). Patterns: waveform.
-    public var lineWidth: Double?
-    /// Height of a silent bar, as a fraction of full height. Range 0...1 (fraction). Patterns: signaling, scrolling, playing.
-    public var minHeight: Double?
-    /// Level of a silent column. Range 0...1 (fraction). Patterns: metering.
-    public var minLevel: Double?
-    /// Columns grow out from the middle row instead of rising from the bottom. Patterns: metering.
-    public var mirror: Bool?
-    /// Draw a thin line at the playback position. Patterns: playing.
-    public var playhead: Bool?
-    /// Points along each waveform line. Range 2...512. Patterns: waveform.
-    public var pointCount: Int?
-    /// Playback position, 0 to 1: bars before it are played (full ink), the rest dimmed. Range 0...1 (fraction). Patterns: playing.
+    /// How high the sheet swells, 0 to 1: any value (a bound input) or, when left out, a bound voice's level; with neither the sheet breathes on its own. Range 0...1 (fraction). Patterns: veil, crystal, comet, flow, cohesion, scan, constellation, ripple, broadcast.
+    public var level: Double?
+    /// How much is done, 0 to 1: a clip's position or a long task's progress. The done part glows. Left out, the plane drifts across on its own. Range 0...1 (fraction). Patterns: dune, constellation.
     public var progress: Double?
-    /// How far the ink moves from grey toward the hue (0 = the grey ink). Range 0...1 (fraction).
-    public var saturation: Double?
-    /// Opacity of the bars not played yet, relative to the played ones. Range 0...1 (fraction). Patterns: playing.
-    public var unplayedOpacity: Double?
+    /// How whole the sphere is, 0 to 1: as it falls the points let go one by one and warm to amber; 1 (the default) is whole. Range 0...1 (fraction). Patterns: cohesion.
+    public var quality: Double?
+    /// How many clouds of light, 2 to 8. Range 2...8. Patterns: constellation.
+    public var steps: Int?
     public var color: SinuaColor?
     public var glow: SinuaGlow?
     public var gradient: SinuaGradient?
@@ -96,26 +81,16 @@ public struct SinuaSignal: View {
         size: SinuaSize = .s64,
         state: String? = nil,
         inputs: [String: Double] = [:],
-        amplitude: Double? = nil,
-        barCount: Int? = nil,
-        barWidth: Double? = nil,
+        blips: Int? = nil,
+        churn: Double? = nil,
         columnCount: Int? = nil,
         envelope: [Double]? = nil,
-        fadeWidth: Double? = nil,
-        hue: Double? = nil,
         ink: Double? = nil,
         layerCount: Int? = nil,
-        ledCount: Int? = nil,
-        ledSize: Double? = nil,
-        lineWidth: Double? = nil,
-        minHeight: Double? = nil,
-        minLevel: Double? = nil,
-        mirror: Bool? = nil,
-        playhead: Bool? = nil,
-        pointCount: Int? = nil,
+        level: Double? = nil,
         progress: Double? = nil,
-        saturation: Double? = nil,
-        unplayedOpacity: Double? = nil,
+        quality: Double? = nil,
+        steps: Int? = nil,
         color: SinuaColor? = nil,
         glow: SinuaGlow? = nil,
         gradient: SinuaGradient? = nil,
@@ -140,26 +115,16 @@ public struct SinuaSignal: View {
         self.size = size
         self.state = state
         self.inputs = inputs
-        self.amplitude = amplitude
-        self.barCount = barCount
-        self.barWidth = barWidth
+        self.blips = blips
+        self.churn = churn
         self.columnCount = columnCount
         self.envelope = envelope
-        self.fadeWidth = fadeWidth
-        self.hue = hue
         self.ink = ink
         self.layerCount = layerCount
-        self.ledCount = ledCount
-        self.ledSize = ledSize
-        self.lineWidth = lineWidth
-        self.minHeight = minHeight
-        self.minLevel = minLevel
-        self.mirror = mirror
-        self.playhead = playhead
-        self.pointCount = pointCount
+        self.level = level
         self.progress = progress
-        self.saturation = saturation
-        self.unplayedOpacity = unplayedOpacity
+        self.quality = quality
+        self.steps = steps
         self.color = color
         self.glow = glow
         self.gradient = gradient
@@ -205,7 +170,7 @@ public struct SinuaSignal: View {
         rules: Bool = true,
         effect: SinuaEffectTrigger? = nil
     ) {
-        self.init(pattern: .signaling, voice: voice, voiceOverrides: voiceOverrides, theme: theme, paused: paused,
+        self.init(pattern: .veil, voice: voice, voiceOverrides: voiceOverrides, theme: theme, paused: paused,
                   reducedMotion: reducedMotion, accessibilityLabel: accessibilityLabel, maxFps: maxFps, lowPower: lowPower, onFrame: onFrame,
                   labels: labels, announce: announce, haptics: haptics, effect: effect)
         self.rules = rules
@@ -219,26 +184,16 @@ public struct SinuaSignal: View {
     /// The engine overrides these props produce (unset props keep the pattern's values).
     public func overrides() -> [String: Double] {
         var o: [String: Double] = [:]
-        if let v = amplitude { o["amplitude"] = v }
-        if let v = barCount { o["barCount"] = Double(v) }
-        if let v = barWidth { o["barWidth"] = v }
+        if let v = blips { o["blips"] = Double(v) }
+        if let v = churn { o["churn"] = v }
         if let v = columnCount { o["columnCount"] = Double(v) }
         if let v = envelope { for (key, x) in zip(["envelope0", "envelope1", "envelope2", "envelope3", "envelope4", "envelope5", "envelope6", "envelope7", "envelope8", "envelope9", "envelope10", "envelope11", "envelope12", "envelope13", "envelope14", "envelope15", "envelope16", "envelope17", "envelope18", "envelope19", "envelope20", "envelope21", "envelope22", "envelope23", "envelope24", "envelope25", "envelope26", "envelope27", "envelope28", "envelope29", "envelope30", "envelope31", "envelope32", "envelope33", "envelope34", "envelope35", "envelope36", "envelope37", "envelope38", "envelope39", "envelope40", "envelope41", "envelope42", "envelope43", "envelope44", "envelope45", "envelope46", "envelope47", "envelope48", "envelope49", "envelope50", "envelope51", "envelope52", "envelope53", "envelope54", "envelope55", "envelope56", "envelope57", "envelope58", "envelope59", "envelope60", "envelope61", "envelope62", "envelope63"], v) { o[key] = x } }
-        if let v = fadeWidth { o["fadeWidth"] = v }
-        if let v = hue { o["hue"] = v }
         if let v = ink { o["ink"] = v }
         if let v = layerCount { o["layerCount"] = Double(v) }
-        if let v = ledCount { o["ledCount"] = Double(v) }
-        if let v = ledSize { o["ledSize"] = v }
-        if let v = lineWidth { o["lineWidth"] = v }
-        if let v = minHeight { o["minHeight"] = v }
-        if let v = minLevel { o["minLevel"] = v }
-        if let v = mirror { o["mirror"] = v ? 1 : 0 }
-        if let v = playhead { o["playhead"] = v ? 1 : 0 }
-        if let v = pointCount { o["pointCount"] = Double(v) }
+        if let v = level { o["level"] = v }
         if let v = progress { o["progress"] = v }
-        if let v = saturation { o["saturation"] = v }
-        if let v = unplayedOpacity { o["unplayedOpacity"] = v }
+        if let v = quality { o["quality"] = v }
+        if let v = steps { o["steps"] = Double(v) }
         color?.write(into: &o)
         glow?.write(into: &o)
         gradient?.write(into: &o)

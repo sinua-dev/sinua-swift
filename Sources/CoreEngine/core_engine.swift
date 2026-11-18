@@ -1064,7 +1064,7 @@ public func FfiConverterTypeEffectInfo_lower(_ value: EffectInfo) -> RustBuffer 
 
 /**
  * Elements `[start, start + count)` of one list (`target` 0 = dots, 1 =
- * lines, 2 = polylines) composited with a Gaussian `blur` (sigma, engine
+ * lines) composited with a Gaussian `blur` (sigma, engine
  * units) and `blend` (0 normal, 1 additive). Never changes draw order.
  */
 public struct EffectRun: Equatable, Hashable {
@@ -1130,195 +1130,6 @@ public func FfiConverterTypeEffectRun_lift(_ buf: RustBuffer) throws -> EffectRu
 #endif
 public func FfiConverterTypeEffectRun_lower(_ value: EffectRun) -> RustBuffer {
     return FfiConverterTypeEffectRun.lower(value)
-}
-
-
-/**
- * A closed, filled polygon (the engine tessellates arcs into points, the
- * same way polylines are built). Paint contract (docs/engine.md):
- * - ink is `white`/`a`/`saturation`/`hue` exactly like a `Dot` -- mirrored
- * on dark themes unless the frame's `color_mode` is `Fixed`;
- * - with a `gradient`, the stops replace the solid ink and each stop's
- * final alpha is `stop.a * fill.a` (so pulse/decay/mute/cross-fades only
- * ever scale `a`); the solid ink stays as a fallback;
- * - `blur` is a Gaussian sigma in engine units (0 = none), `blend` 0 =
- * normal, 1 = additive (Canvas `lighter`, SwiftUI `plusLighter`, Compose
- * `BlendMode.Plus`).
- */
-public struct Fill: Equatable, Hashable {
-    public var points: [Point]
-    /**
-     * Inner rings (liquid's bands have them): painted with the *even-odd*
-     * rule together with `points` as one path. Omitted from JSON when
-     * empty -- every fill before materials phase 2 has none.
-     */
-    public var holes: [[Point]]
-    public var white: Double
-    public var a: Double
-    public var saturation: Double
-    public var hue: Double
-    public var gradient: FillGradient?
-    public var blur: Double
-    public var blend: UInt8
-
-    // Default memberwise initializers are never public by default, so we
-    // declare one manually.
-    public init(points: [Point], 
-        /**
-         * Inner rings (liquid's bands have them): painted with the *even-odd*
-         * rule together with `points` as one path. Omitted from JSON when
-         * empty -- every fill before materials phase 2 has none.
-         */holes: [[Point]], white: Double, a: Double, saturation: Double, hue: Double, gradient: FillGradient?, blur: Double, blend: UInt8) {
-        self.points = points
-        self.holes = holes
-        self.white = white
-        self.a = a
-        self.saturation = saturation
-        self.hue = hue
-        self.gradient = gradient
-        self.blur = blur
-        self.blend = blend
-    }
-
-    
-
-    
-}
-
-#if compiler(>=6)
-extension Fill: Sendable {}
-#endif
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeFill: FfiConverterRustBuffer {
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Fill {
-        return
-            try Fill(
-                points: FfiConverterSequenceTypePoint.read(from: &buf), 
-                holes: FfiConverterSequenceSequenceTypePoint.read(from: &buf), 
-                white: FfiConverterDouble.read(from: &buf), 
-                a: FfiConverterDouble.read(from: &buf), 
-                saturation: FfiConverterDouble.read(from: &buf), 
-                hue: FfiConverterDouble.read(from: &buf), 
-                gradient: FfiConverterOptionTypeFillGradient.read(from: &buf), 
-                blur: FfiConverterDouble.read(from: &buf), 
-                blend: FfiConverterUInt8.read(from: &buf)
-        )
-    }
-
-    public static func write(_ value: Fill, into buf: inout [UInt8]) {
-        FfiConverterSequenceTypePoint.write(value.points, into: &buf)
-        FfiConverterSequenceSequenceTypePoint.write(value.holes, into: &buf)
-        FfiConverterDouble.write(value.white, into: &buf)
-        FfiConverterDouble.write(value.a, into: &buf)
-        FfiConverterDouble.write(value.saturation, into: &buf)
-        FfiConverterDouble.write(value.hue, into: &buf)
-        FfiConverterOptionTypeFillGradient.write(value.gradient, into: &buf)
-        FfiConverterDouble.write(value.blur, into: &buf)
-        FfiConverterUInt8.write(value.blend, into: &buf)
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeFill_lift(_ buf: RustBuffer) throws -> Fill {
-    return try FfiConverterTypeFill.lift(buf)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeFill_lower(_ value: Fill) -> RustBuffer {
-    return FfiConverterTypeFill.lower(value)
-}
-
-
-/**
- * `kind` 0 = linear from (x0, y0) to (x1, y1); 1 = radial, centre (x0, y0),
- * radius 0 to `r`. Pad beyond the ends. No conic: SwiftUI's
- * `GraphicsContext` conic shading is iOS 18+ and SVG has none.
- */
-public struct FillGradient: Equatable, Hashable {
-    public var kind: UInt8
-    public var x0: Double
-    public var y0: Double
-    public var x1: Double
-    public var y1: Double
-    public var r: Double
-    /**
-     * 2-3 stops, sorted by `offset` in 0..1.
-     */
-    public var stops: [GradientStop]
-
-    // Default memberwise initializers are never public by default, so we
-    // declare one manually.
-    public init(kind: UInt8, x0: Double, y0: Double, x1: Double, y1: Double, r: Double, 
-        /**
-         * 2-3 stops, sorted by `offset` in 0..1.
-         */stops: [GradientStop]) {
-        self.kind = kind
-        self.x0 = x0
-        self.y0 = y0
-        self.x1 = x1
-        self.y1 = y1
-        self.r = r
-        self.stops = stops
-    }
-
-    
-
-    
-}
-
-#if compiler(>=6)
-extension FillGradient: Sendable {}
-#endif
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeFillGradient: FfiConverterRustBuffer {
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FillGradient {
-        return
-            try FillGradient(
-                kind: FfiConverterUInt8.read(from: &buf), 
-                x0: FfiConverterDouble.read(from: &buf), 
-                y0: FfiConverterDouble.read(from: &buf), 
-                x1: FfiConverterDouble.read(from: &buf), 
-                y1: FfiConverterDouble.read(from: &buf), 
-                r: FfiConverterDouble.read(from: &buf), 
-                stops: FfiConverterSequenceTypeGradientStop.read(from: &buf)
-        )
-    }
-
-    public static func write(_ value: FillGradient, into buf: inout [UInt8]) {
-        FfiConverterUInt8.write(value.kind, into: &buf)
-        FfiConverterDouble.write(value.x0, into: &buf)
-        FfiConverterDouble.write(value.y0, into: &buf)
-        FfiConverterDouble.write(value.x1, into: &buf)
-        FfiConverterDouble.write(value.y1, into: &buf)
-        FfiConverterDouble.write(value.r, into: &buf)
-        FfiConverterSequenceTypeGradientStop.write(value.stops, into: &buf)
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeFillGradient_lift(_ buf: RustBuffer) throws -> FillGradient {
-    return try FfiConverterTypeFillGradient.lift(buf)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeFillGradient_lower(_ value: FillGradient) -> RustBuffer {
-    return FfiConverterTypeFillGradient.lower(value)
 }
 
 
@@ -1389,8 +1200,7 @@ public func FfiConverterTypeFxAccessibility_lower(_ value: FxAccessibility) -> R
  */
 public struct FxCost: Equatable, Hashable {
     /**
-     * dots + lines + polylines + fills: draw calls a canvas-style renderer
-     * issues (plus `n - 1` for each per-vertex-hue polyline's segments).
+     * dots + lines + polylines: draw calls a canvas-style renderer issues.
      */
     public var elements: UInt32
     public var dots: UInt32
@@ -1400,10 +1210,6 @@ public struct FxCost: Equatable, Hashable {
      * Total polyline vertices.
      */
     public var points: UInt32
-    /**
-     * Filled shapes (materials phase 1).
-     */
-    public var fills: UInt32
     /**
      * Sum of primitive areas / canvas area (1.0 = the canvas covered once).
      */
@@ -1430,15 +1236,11 @@ public struct FxCost: Equatable, Hashable {
     // declare one manually.
     public init(
         /**
-         * dots + lines + polylines + fills: draw calls a canvas-style renderer
-         * issues (plus `n - 1` for each per-vertex-hue polyline's segments).
+         * dots + lines + polylines: draw calls a canvas-style renderer issues.
          */elements: UInt32, dots: UInt32, lines: UInt32, polylines: UInt32, 
         /**
          * Total polyline vertices.
          */points: UInt32, 
-        /**
-         * Filled shapes (materials phase 1).
-         */fills: UInt32, 
         /**
          * Sum of primitive areas / canvas area (1.0 = the canvas covered once).
          */coverage: Double, 
@@ -1460,7 +1262,6 @@ public struct FxCost: Equatable, Hashable {
         self.lines = lines
         self.polylines = polylines
         self.points = points
-        self.fills = fills
         self.coverage = coverage
         self.`class` = `class`
         self.baseElements = baseElements
@@ -1489,7 +1290,6 @@ public struct FfiConverterTypeFxCost: FfiConverterRustBuffer {
                 lines: FfiConverterUInt32.read(from: &buf), 
                 polylines: FfiConverterUInt32.read(from: &buf), 
                 points: FfiConverterUInt32.read(from: &buf), 
-                fills: FfiConverterUInt32.read(from: &buf), 
                 coverage: FfiConverterDouble.read(from: &buf), 
                 class: FfiConverterString.read(from: &buf), 
                 baseElements: FfiConverterUInt32.read(from: &buf), 
@@ -1504,7 +1304,6 @@ public struct FfiConverterTypeFxCost: FfiConverterRustBuffer {
         FfiConverterUInt32.write(value.lines, into: &buf)
         FfiConverterUInt32.write(value.polylines, into: &buf)
         FfiConverterUInt32.write(value.points, into: &buf)
-        FfiConverterUInt32.write(value.fills, into: &buf)
         FfiConverterDouble.write(value.coverage, into: &buf)
         FfiConverterString.write(value.`class`, into: &buf)
         FfiConverterUInt32.write(value.baseElements, into: &buf)
@@ -1659,64 +1458,6 @@ public func FfiConverterTypeFxHsl_lift(_ buf: RustBuffer) throws -> FxHsl {
 #endif
 public func FfiConverterTypeFxHsl_lower(_ value: FxHsl) -> RustBuffer {
     return FfiConverterTypeFxHsl.lower(value)
-}
-
-
-/**
- * A character's palette override (design note 19), resolved for a view: the
- * engine opts (`palette.<slot>.h/.s/.l/.w`) and what went wrong or reads badly.
- */
-public struct FxPaletteResult: Equatable, Hashable {
-    public var overrides: [String: Double]
-    public var diagnostics: [FxDiagnostic]
-
-    // Default memberwise initializers are never public by default, so we
-    // declare one manually.
-    public init(overrides: [String: Double], diagnostics: [FxDiagnostic]) {
-        self.overrides = overrides
-        self.diagnostics = diagnostics
-    }
-
-    
-
-    
-}
-
-#if compiler(>=6)
-extension FxPaletteResult: Sendable {}
-#endif
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeFxPaletteResult: FfiConverterRustBuffer {
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FxPaletteResult {
-        return
-            try FxPaletteResult(
-                overrides: FfiConverterDictionaryStringDouble.read(from: &buf), 
-                diagnostics: FfiConverterSequenceTypeFxDiagnostic.read(from: &buf)
-        )
-    }
-
-    public static func write(_ value: FxPaletteResult, into buf: inout [UInt8]) {
-        FfiConverterDictionaryStringDouble.write(value.overrides, into: &buf)
-        FfiConverterSequenceTypeFxDiagnostic.write(value.diagnostics, into: &buf)
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeFxPaletteResult_lift(_ buf: RustBuffer) throws -> FxPaletteResult {
-    return try FfiConverterTypeFxPaletteResult.lift(buf)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeFxPaletteResult_lower(_ value: FxPaletteResult) -> RustBuffer {
-    return FfiConverterTypeFxPaletteResult.lower(value)
 }
 
 
@@ -1928,78 +1669,6 @@ public func FfiConverterTypeFxTransition_lower(_ value: FxTransition) -> RustBuf
 }
 
 
-public struct GradientStop: Equatable, Hashable {
-    public var offset: Double
-    public var white: Double
-    /**
-     * Relative: the painted alpha is `stop.a * fill.a`.
-     */
-    public var a: Double
-    public var saturation: Double
-    public var hue: Double
-
-    // Default memberwise initializers are never public by default, so we
-    // declare one manually.
-    public init(offset: Double, white: Double, 
-        /**
-         * Relative: the painted alpha is `stop.a * fill.a`.
-         */a: Double, saturation: Double, hue: Double) {
-        self.offset = offset
-        self.white = white
-        self.a = a
-        self.saturation = saturation
-        self.hue = hue
-    }
-
-    
-
-    
-}
-
-#if compiler(>=6)
-extension GradientStop: Sendable {}
-#endif
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeGradientStop: FfiConverterRustBuffer {
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> GradientStop {
-        return
-            try GradientStop(
-                offset: FfiConverterDouble.read(from: &buf), 
-                white: FfiConverterDouble.read(from: &buf), 
-                a: FfiConverterDouble.read(from: &buf), 
-                saturation: FfiConverterDouble.read(from: &buf), 
-                hue: FfiConverterDouble.read(from: &buf)
-        )
-    }
-
-    public static func write(_ value: GradientStop, into buf: inout [UInt8]) {
-        FfiConverterDouble.write(value.offset, into: &buf)
-        FfiConverterDouble.write(value.white, into: &buf)
-        FfiConverterDouble.write(value.a, into: &buf)
-        FfiConverterDouble.write(value.saturation, into: &buf)
-        FfiConverterDouble.write(value.hue, into: &buf)
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeGradientStop_lift(_ buf: RustBuffer) throws -> GradientStop {
-    return try FfiConverterTypeGradientStop.lift(buf)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeGradientStop_lower(_ value: GradientStop) -> RustBuffer {
-    return FfiConverterTypeGradientStop.lower(value)
-}
-
-
 /**
  * A stroked edge between two points (the `connecting`/`web` `orbs` mode is
  * the original user; family-agnostic like everything else here).
@@ -2131,14 +1800,8 @@ public struct OrbFrame: Equatable, Hashable {
      */
     public var colorMode: ColorMode
     /**
-     * Filled shapes (materials phase 1), drawn *first* -- under polylines,
-     * lines and dots. Empty for every mode unless an opt asks for fills;
-     * omitted from JSON when empty so existing frames serialize unchanged.
-     */
-    public var fills: [Fill]
-    /**
-     * Paint effects on ranges of `dots` / `lines` / `polylines` (today:
-     * real-blur glow halos). Omitted from JSON when empty.
+     * Paint effects on ranges of `dots` / `lines` (glow halos, the light
+     * volumes' soft glows). Omitted from JSON when empty.
      */
     public var effects: [EffectRun]
 
@@ -2153,19 +1816,13 @@ public struct OrbFrame: Equatable, Hashable {
          * `Ink` unless `apply_color`'s `colorMode` asked for `Fixed`.
          */colorMode: ColorMode, 
         /**
-         * Filled shapes (materials phase 1), drawn *first* -- under polylines,
-         * lines and dots. Empty for every mode unless an opt asks for fills;
-         * omitted from JSON when empty so existing frames serialize unchanged.
-         */fills: [Fill], 
-        /**
-         * Paint effects on ranges of `dots` / `lines` / `polylines` (today:
-         * real-blur glow halos). Omitted from JSON when empty.
+         * Paint effects on ranges of `dots` / `lines` (glow halos, the light
+         * volumes' soft glows). Omitted from JSON when empty.
          */effects: [EffectRun]) {
         self.dots = dots
         self.lines = lines
         self.polylines = polylines
         self.colorMode = colorMode
-        self.fills = fills
         self.effects = effects
     }
 
@@ -2189,7 +1846,6 @@ public struct FfiConverterTypeOrbFrame: FfiConverterRustBuffer {
                 lines: FfiConverterSequenceTypeLine.read(from: &buf), 
                 polylines: FfiConverterSequenceTypePolyline.read(from: &buf), 
                 colorMode: FfiConverterTypeColorMode.read(from: &buf), 
-                fills: FfiConverterSequenceTypeFill.read(from: &buf), 
                 effects: FfiConverterSequenceTypeEffectRun.read(from: &buf)
         )
     }
@@ -2199,7 +1855,6 @@ public struct FfiConverterTypeOrbFrame: FfiConverterRustBuffer {
         FfiConverterSequenceTypeLine.write(value.lines, into: &buf)
         FfiConverterSequenceTypePolyline.write(value.polylines, into: &buf)
         FfiConverterTypeColorMode.write(value.colorMode, into: &buf)
-        FfiConverterSequenceTypeFill.write(value.fills, into: &buf)
         FfiConverterSequenceTypeEffectRun.write(value.effects, into: &buf)
     }
 }
@@ -2283,7 +1938,7 @@ public func FfiConverterTypePoint_lower(_ value: Point) -> RustBuffer {
  * A continuous stroked path through `points`, in order -- the primitive a
  * smooth curve or a pill-shaped bar needs and `Line` can't provide.
  *
- * Why this exists: `signal::modes::waveform` first drew its curve as ~48
+ * Why this exists: the first signal waveform (since removed) drew its curve as ~48
  * consecutive but *independent* `Line` segments. Every renderer strokes
  * each `Line` as its own butt-capped path, so at every bend the segments
  * left a wedge-shaped gap on the outside and a double-painted (darker, at
@@ -2308,19 +1963,7 @@ public func FfiConverterTypePoint_lower(_ value: Point) -> RustBuffer {
  * path (two coincident points) renders as a round dot of diameter `w`
  * under round caps on every target renderer -- `bar` relies on this for
  * its shortest pills.
- *
- * Per-vertex hue (2026-09-19): when `hues` is non-empty, draw each segment
- * `i-1 -> i` as a round-capped stroke of width `w` with a linear gradient
- * from `ink(white, saturation, hues[i-1])` to `ink(.., hues[i])` at alpha
- * 1 (a zero-length segment: a round dot of diameter `w` in vertex `i`'s
- * colour), all segments into ONE offscreen/transparency layer, then
- * composite that layer once at `a` -- with the element's effect run
- * (blur, blend) applied at that composite. Inside the opaque layer the
- * round caps overlap without double-painting, so the stroke keeps the
- * single-path, no-seam look this primitive exists for. Between vertices
- * the renderer's own gradient interpolation (sRGB) is used: vertices are
- * dense, and RGB interpolation handles a 359 -> 1 hue wrap by itself. A
- * renderer without per-vertex support paints `hue`, exactly as before.
+
  */
 public struct Polyline: Equatable, Hashable {
     public var points: [Point]
@@ -2338,20 +1981,9 @@ public struct Polyline: Equatable, Hashable {
      */
     public var saturation: Double
     /**
-     * Same semantics as `Dot.hue`. With `hues`, this stays the whole
-     * stroke's single-hue sample (the vertex mean) -- the fallback a
-     * renderer without per-vertex support paints.
+     * Same semantics as `Dot.hue`.
      */
     public var hue: Double
-    /**
-     * Per-vertex hue (degrees), one per `points` entry, or empty = the
-     * single `hue` for the whole stroke (every mode emits empty). Set by
-     * `apply_gradient` only when the vertex hues differ, so a
-     * ring's track sweeps along its length instead of taking one colour.
-     * `white`, `a`, `w`, `saturation` stay uniform. Paint contract: see
-     * the per-vertex paragraph above. Omitted from JSON when empty.
-     */
-    public var hues: [Double]
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -2366,25 +1998,14 @@ public struct Polyline: Equatable, Hashable {
          * Same semantics as `Dot.saturation` -- `0` = grayscale ink.
          */saturation: Double, 
         /**
-         * Same semantics as `Dot.hue`. With `hues`, this stays the whole
-         * stroke's single-hue sample (the vertex mean) -- the fallback a
-         * renderer without per-vertex support paints.
-         */hue: Double, 
-        /**
-         * Per-vertex hue (degrees), one per `points` entry, or empty = the
-         * single `hue` for the whole stroke (every mode emits empty). Set by
-         * `apply_gradient` only when the vertex hues differ, so a
-         * ring's track sweeps along its length instead of taking one colour.
-         * `white`, `a`, `w`, `saturation` stay uniform. Paint contract: see
-         * the per-vertex paragraph above. Omitted from JSON when empty.
-         */hues: [Double]) {
+         * Same semantics as `Dot.hue`.
+         */hue: Double) {
         self.points = points
         self.white = white
         self.a = a
         self.w = w
         self.saturation = saturation
         self.hue = hue
-        self.hues = hues
     }
 
     
@@ -2408,8 +2029,7 @@ public struct FfiConverterTypePolyline: FfiConverterRustBuffer {
                 a: FfiConverterDouble.read(from: &buf), 
                 w: FfiConverterDouble.read(from: &buf), 
                 saturation: FfiConverterDouble.read(from: &buf), 
-                hue: FfiConverterDouble.read(from: &buf), 
-                hues: FfiConverterSequenceDouble.read(from: &buf)
+                hue: FfiConverterDouble.read(from: &buf)
         )
     }
 
@@ -2420,7 +2040,6 @@ public struct FfiConverterTypePolyline: FfiConverterRustBuffer {
         FfiConverterDouble.write(value.w, into: &buf)
         FfiConverterDouble.write(value.saturation, into: &buf)
         FfiConverterDouble.write(value.hue, into: &buf)
-        FfiConverterSequenceDouble.write(value.hues, into: &buf)
     }
 }
 
@@ -2969,30 +2588,6 @@ fileprivate struct FfiConverterOptionTypeEffectInfo: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-fileprivate struct FfiConverterOptionTypeFillGradient: FfiConverterRustBuffer {
-    typealias SwiftType = FillGradient?
-
-    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
-        guard let value = value else {
-            writeInt(&buf, Int8(0))
-            return
-        }
-        writeInt(&buf, Int8(1))
-        FfiConverterTypeFillGradient.write(value, into: &buf)
-    }
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
-        switch try readInt(&buf) as Int8 {
-        case 0: return nil
-        case 1: return try FfiConverterTypeFillGradient.read(from: &buf)
-        default: throw UniffiInternalError.unexpectedOptionalTag
-        }
-    }
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
 fileprivate struct FfiConverterOptionTypeFxHsl: FfiConverterRustBuffer {
     typealias SwiftType = FxHsl?
 
@@ -3113,30 +2708,6 @@ fileprivate struct FfiConverterOptionTypeVoiceStateProfile: FfiConverterRustBuff
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-fileprivate struct FfiConverterOptionDictionaryStringDouble: FfiConverterRustBuffer {
-    typealias SwiftType = [String: Double]?
-
-    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
-        guard let value = value else {
-            writeInt(&buf, Int8(0))
-            return
-        }
-        writeInt(&buf, Int8(1))
-        FfiConverterDictionaryStringDouble.write(value, into: &buf)
-    }
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
-        switch try readInt(&buf) as Int8 {
-        case 0: return nil
-        case 1: return try FfiConverterDictionaryStringDouble.read(from: &buf)
-        default: throw UniffiInternalError.unexpectedOptionalTag
-        }
-    }
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
 fileprivate struct FfiConverterSequenceDouble: FfiConverterRustBuffer {
     typealias SwiftType = [Double]
 
@@ -3237,31 +2808,6 @@ fileprivate struct FfiConverterSequenceTypeEffectRun: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-fileprivate struct FfiConverterSequenceTypeFill: FfiConverterRustBuffer {
-    typealias SwiftType = [Fill]
-
-    public static func write(_ value: [Fill], into buf: inout [UInt8]) {
-        let len = Int32(value.count)
-        writeInt(&buf, len)
-        for item in value {
-            FfiConverterTypeFill.write(item, into: &buf)
-        }
-    }
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [Fill] {
-        let len: Int32 = try readInt(&buf)
-        var seq = [Fill]()
-        seq.reserveCapacity(Int(len))
-        for _ in 0 ..< len {
-            seq.append(try FfiConverterTypeFill.read(from: &buf))
-        }
-        return seq
-    }
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
 fileprivate struct FfiConverterSequenceTypeFxDiagnostic: FfiConverterRustBuffer {
     typealias SwiftType = [FxDiagnostic]
 
@@ -3279,31 +2825,6 @@ fileprivate struct FfiConverterSequenceTypeFxDiagnostic: FfiConverterRustBuffer 
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeFxDiagnostic.read(from: &buf))
-        }
-        return seq
-    }
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-fileprivate struct FfiConverterSequenceTypeGradientStop: FfiConverterRustBuffer {
-    typealias SwiftType = [GradientStop]
-
-    public static func write(_ value: [GradientStop], into buf: inout [UInt8]) {
-        let len = Int32(value.count)
-        writeInt(&buf, len)
-        for item in value {
-            FfiConverterTypeGradientStop.write(item, into: &buf)
-        }
-    }
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [GradientStop] {
-        let len: Int32 = try readInt(&buf)
-        var seq = [GradientStop]()
-        seq.reserveCapacity(Int(len))
-        for _ in 0 ..< len {
-            seq.append(try FfiConverterTypeGradientStop.read(from: &buf))
         }
         return seq
     }
@@ -3404,31 +2925,6 @@ fileprivate struct FfiConverterSequenceTypeTransitionSide: FfiConverterRustBuffe
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeTransitionSide.read(from: &buf))
-        }
-        return seq
-    }
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-fileprivate struct FfiConverterSequenceSequenceTypePoint: FfiConverterRustBuffer {
-    typealias SwiftType = [[Point]]
-
-    public static func write(_ value: [[Point]], into buf: inout [UInt8]) {
-        let len = Int32(value.count)
-        writeInt(&buf, len)
-        for item in value {
-            FfiConverterSequenceTypePoint.write(item, into: &buf)
-        }
-    }
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [[Point]] {
-        let len: Int32 = try readInt(&buf)
-        var seq = [[Point]]()
-        seq.reserveCapacity(Int(len))
-        for _ in 0 ..< len {
-            seq.append(try FfiConverterSequenceTypePoint.read(from: &buf))
         }
         return seq
     }
@@ -3580,19 +3076,6 @@ public func effectInfo(name: String) -> EffectInfo?  {
     return try!  FfiConverterOptionTypeEffectInfo.lift(try! rustCall() {
         uniffiCallStatus in
     uniffi_core_engine_fn_func_effect_info(
-        FfiConverterString.lower(name),uniffiCallStatus
-    )
-})
-}
-/**
- * A character's expression (design note 16) as the engine opts that weigh
- * it: the named one 1, the others 0; `"none"` all 0. `None` for an unknown
- * name. A view sets these (eased over a change) to draw `expression`.
- */
-public func expressionOverrides(name: String) -> [String: Double]?  {
-    return try!  FfiConverterOptionDictionaryStringDouble.lift(try! rustCall() {
-        uniffiCallStatus in
-    uniffi_core_engine_fn_func_expression_overrides(
         FfiConverterString.lower(name),uniffiCallStatus
     )
 })
@@ -3770,21 +3253,6 @@ public func fxSpecTransition(json: String, from: String?, to: String?) -> FxTran
 })
 }
 /**
- * `palette` (a JSON object: slots or roles -> hex or DTCG colour, `theme`,
- * `dark`; design notes 19, 23) on `pattern`, through the FX Spec's own
- * `palette` rules, so a view and a file paint alike. The dark variant comes
- * back as `palette.dark.<slot>.*`, picked when the view passes `dark`.
- */
-public func paletteOverrides(pattern: String, paletteJson: String) -> FxPaletteResult  {
-    return try!  FfiConverterTypeFxPaletteResult_lift(try! rustCall() {
-        uniffiCallStatus in
-    uniffi_core_engine_fn_func_palette_overrides(
-        FfiConverterString.lower(pattern),
-        FfiConverterString.lower(paletteJson),uniffiCallStatus
-    )
-})
-}
-/**
  * How a pattern lays out in a view's box: `"box"` -- engine space follows
  * the box ratio, which the view passes as the `aspect` input (width
  * `size * aspect`, height `size`) and fills the box with -- or `"square"`,
@@ -3800,10 +3268,10 @@ public func patternLayout(pattern: String) -> String  {
 })
 }
 /**
- * Signal `playing`: the playback position under a touch. `x` is the touch's
- * distance from the box's left edge over the box's height, the box is `aspect`
- * wide (width / height); the result is `0..1`, on the same row of bars the
- * pattern draws. Views use it for drag-to-seek.
+ * Signal `dune` (a voice message): the playback position under a touch. `x` is the
+ * touch's distance from the box's left edge over the box's height, the box is `aspect`
+ * wide (width / height); the result is `0..1`, on the dune the pattern draws. Views use
+ * it for drag-to-seek.
  */
 public func playbackSeekProgress(aspect: Double, x: Double) -> Double  {
     return try!  FfiConverterDouble.lift(try! rustCall() {
@@ -3963,9 +3431,6 @@ private let initializationResult: InitializationResult = {
     if (uniffi_core_engine_checksum_func_effect_info() != 46267) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_core_engine_checksum_func_expression_overrides() != 14228) {
-        return InitializationResult.apiChecksumMismatch
-    }
     if (uniffi_core_engine_checksum_func_frame() != 6724) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -3996,13 +3461,10 @@ private let initializationResult: InitializationResult = {
     if (uniffi_core_engine_checksum_func_fx_spec_transition() != 38102) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_core_engine_checksum_func_palette_overrides() != 51677) {
-        return InitializationResult.apiChecksumMismatch
-    }
     if (uniffi_core_engine_checksum_func_pattern_layout() != 31661) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_core_engine_checksum_func_playback_seek_progress() != 38014) {
+    if (uniffi_core_engine_checksum_func_playback_seek_progress() != 33744) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_core_engine_checksum_func_resolve_fx_spec() != 45444) {

@@ -1,7 +1,7 @@
 import CoreEngine
 import SwiftUI
 
-/// A recorded voice message's waveform (signal `playing`) with drag-to-seek: the
+/// A recorded voice message's waveform (signal `dune`) with drag-to-seek: the
 /// chat-bubble control.
 ///
 /// ```swift
@@ -11,7 +11,7 @@ import SwiftUI
 ///
 /// Sinua decodes no audio: pass the clip's loudness as `envelope` (up to 64 values,
 /// 0...1) and the position as `progress`. A drag or a tap reports the position under
-/// the finger through `onSeek`, on the same row of bars the engine draws. VoiceOver:
+/// the finger through `onSeek`, at the spot of the dune the engine draws. VoiceOver:
 /// an adjustable element (swipe up / down moves 5 %).
 public struct SinuaVoiceMessage: View {
     public static let maxEnvelope = 64
@@ -54,7 +54,7 @@ public struct SinuaVoiceMessage: View {
 
     public var body: some View {
         GeometryReader { g in
-            SinuaView(pattern: "playing", overrides: engineKeys, theme: theme, accessibilityLabel: "")
+            SinuaView(pattern: "dune", overrides: engineKeys, theme: theme, accessibilityLabel: "")
                 .contentShape(Rectangle())
                 .gesture(
                     DragGesture(minimumDistance: 0)

@@ -51,14 +51,11 @@ struct StateTransition {
     private var size: UInt32 = 64
     private var rates: [String: Rates] = [:]
     private var lastT: Double?
-    /// Seconds since the last state change (cut or not); infinite before the first.
-    private var since = Double.infinity
 
     /// A state change happened: the weights head for the new state from where they are.
     /// `duration` 0 = a cut. `authored`: the file wrote `curve` for this change, so it is
     /// kept (velocity carried); otherwise the lag clock, ~95 % of the way in `duration`.
     mutating func start(duration: Double, curve: String, authored: Bool = false) {
-        if !entries.isEmpty { since = 0 }
         guard duration > 0, !entries.isEmpty else {
             entries = [Entry(nil, 1)]
             self.authored = nil
@@ -86,7 +83,6 @@ struct StateTransition {
 
     mutating func advance(_ dt: Double) {
         let raw = max(0, dt)
-        since += raw
         if raw > settleGapSeconds {
             if let t = entries.last { entries = [Entry(t.side, 1)] }
             authored = nil
@@ -133,11 +129,6 @@ struct StateTransition {
         }
     }
 
-    /// Seconds since the lifecycle state last changed, or nil before the first change.
-    /// The frames carry it as the `stateAge` runtime key (a character blinks at the end
-    /// of the user's turn); other patterns ignore it.
-    var stateAge: Double? { since.isFinite ? since : nil }
-
     /// More than one state is on screen.
     var active: Bool { entries.count > 1 }
 
@@ -171,15 +162,13 @@ struct StateTransition {
 
     /// The frames for `to` at engine time `t`: `previous` dissolved into `frame` at `blend`.
     /// `extra` is the live runtime keys (audio, pointer), spread over every side.
-    mutating func frames(_ to: TransitionSide, size: UInt32, t: Double, extra live: [String: Double])
+    mutating func frames(_ to: TransitionSide, size: UInt32, t: Double, extra: [String: Double])
         -> (frame: OrbFrame?, previous: OrbFrame?, blend: Double)
     {
         self.size = size
         if entries.isEmpty { entries = [Entry(to, 1)] }
         let target = entries.count - 1
         entries[target].side = to
-        var extra = live
-        if since.isFinite { extra["stateAge"] = since }
         let dp = tick(t)
 
         // One group per pattern; within it the engine blends the sides by weight.

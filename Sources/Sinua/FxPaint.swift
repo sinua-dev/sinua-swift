@@ -7,7 +7,7 @@ import SwiftUI
 
 /// Paint contract (spec/orbs-spec.json, plus `Polyline`'s doc comment in
 /// crates/core_engine/src/primitives.rs): polylines draw first, then lines,
-/// then dots; plain source-over fills; ink mirrors on dark themes -- grey =
+/// then dots; plain source-over; ink mirrors on dark themes -- grey =
 /// (dark ? 1-white : white). Ported 1:1 from the Web Studio's canvas/
 /// drawFrame.ts so this view and `renderFrame(to:)` (used by PNG export)
 /// can never drift from each other, the same way the Web Studio shares one
@@ -49,9 +49,9 @@ public enum FxPaint {
     public static func draw(
         _ frame: OrbFrame, into context: inout GraphicsContext, size: CGSize, engineSize: Double, dark: Bool
     ) {
-        // Materials phase 1 (fills, effect runs): its own path, so frames
+        // Effect runs (blur, additive, light): their own path, so frames
         // without them keep exactly the drawing below (bitmap parity).
-        if !frame.fills.isEmpty || !frame.effects.isEmpty {
+        if !frame.effects.isEmpty {
             drawWithMaterials(frame, into: &context, size: size, engineSize: engineSize, dark: dark)
             return
         }
@@ -65,10 +65,6 @@ public enum FxPaint {
         // one stroke per segment, which is the seam problem this primitive
         // exists to fix (see its Rust doc comment).
         for p in frame.polylines where p.points.count >= 2 {
-            if hasHues(p) {
-                strokeHues(p, in: context, mirror: mirror, blur: 0, blend: 0)
-                continue
-            }
             var path = Path()
             path.move(to: CGPoint(x: p.points[0].x, y: p.points[0].y))
             for pt in p.points.dropFirst() {
@@ -96,11 +92,11 @@ public enum FxPaint {
         }
     }
 
-    // MARK: - Materials phase 1 (contract: docs/engine.md "Paint contract: fills and effects")
+    // MARK: - Effect runs (contract: docs/engine.md "Paint contract")
 
     /// SwiftUI `.blur(radius:)` -> Gaussian sigma: `radius = blurRadiusPerSigma * sigma`
     /// (in the context's user space). Measured against the Web renderer's
-    /// sigma-exact blur -- see docs/fx-view.md, *Fills and effects*.
+    /// sigma-exact blur -- see docs/fx-view.md, *Effects*.
     public static var blurRadiusPerSigma: Double = 1.0
 
     /// Applies an element's blur (Gaussian sigma, engine units) and additive blend to a copy of
@@ -114,6 +110,41 @@ public enum FxPaint {
         draw(&c)
     }
 
+    /// `blend` 3 on dots (1.15 light volumes, docs/engine.md *Light*): each dot is a flat,
+    /// hard-edged disc -- a plain path fill, like an orb's dots, so it is as sharp at 900 pt as at
+    /// 140 -- of `lightCore` of the dot's radius `r` (`r` is sized for glow). Added up on a dark
+    /// background (`plusLighter`). A light background can't take added light, so there the disc,
+    /// no brighter than the colour, is laid on normally. The Web's `drawLight`.
+    static let light: UInt8 = 3
+    static let lightCore = 0.5
+
+    private static func drawLight(_ d: Dot, in context: GraphicsContext, dark: Bool, mirror: Bool) {
+        guard d.r > 0 else { return }
+        let w = mirror ? 1 - d.white : d.white
+        let l = Double(Int((w * 100).rounded())) / 100
+        let tone = dark ? l : max(0.10, l - 0.22)
+        let (r, g, b) = hslToRGB(Double(Int(d.hue.rounded())), Double(Int((d.saturation * 100).rounded())) / 100, tone)
+        var c = context
+        c.blendMode = dark ? .plusLighter : .normal
+        c.opacity = min(1, max(0, d.a))
+        let rr = d.r * lightCore
+        c.fill(
+            Path(ellipseIn: CGRect(x: d.x - rr, y: d.y - rr, width: rr * 2, height: rr * 2)),
+            with: .color(Color(red: r, green: g, blue: b)))
+    }
+
+    /// HSL (hue in degrees, saturation and lightness 0..1) to sRGB 0..1.
+    private static func hslToRGB(_ h: Double, _ s: Double, _ l: Double) -> (Double, Double, Double) {
+        let c = (1 - abs(2 * l - 1)) * s
+        let hp = (h.truncatingRemainder(dividingBy: 360) + 360).truncatingRemainder(dividingBy: 360) / 60
+        let x = c * (1 - abs(hp.truncatingRemainder(dividingBy: 2) - 1))
+        let (r, g, b): (Double, Double, Double) =
+            hp < 1
+            ? (c, x, 0) : hp < 2 ? (x, c, 0) : hp < 3 ? (0, c, x) : hp < 4 ? (0, x, c) : hp < 5 ? (x, 0, c) : (c, 0, x)
+        let m = l - c / 2
+        return (r + m, g + m, b + m)
+    }
+
     private static func runs(_ effects: [EffectRun], target: UInt8, count: Int) -> [EffectRun?]? {
         var map: [EffectRun?]?
         for e in effects where e.target == target && e.count > 0 {
@@ -124,50 +155,6 @@ public enum FxPaint {
         return map
     }
 
-    /// The grain tile's value at (x, y), 0..1 (< 0.5 dark, >= 0.5 light; alpha = |v - 0.5| * 2):
-    /// the same integer hash as the Web's `grainValue` and Android's (design note 22).
-    public static func grainValue(_ x: Int, _ y: Int) -> Double {
-        var h =
-            (UInt32(truncatingIfNeeded: x) &* 73_856_093) ^ (UInt32(truncatingIfNeeded: y) &* 19_349_663) ^ 0x9E37_79B9
-        h = (h ^ (h >> 13)) &* 1_274_126_177
-        h = h ^ (h >> 16)
-        return Double(h) / 4_294_967_296.0
-    }
-
-    /// The 64-px grain tile (premultiplied RGBA), built once; exporters embed it too.
-    public static let grainTile: CGImage? = {
-        let n = 64
-        var px = [UInt8](repeating: 0, count: n * n * 4)
-        for y in 0..<n {
-            for x in 0..<n {
-                let v = grainValue(x, y)
-                let a = UInt8((abs(v - 0.5) * 2 * 255).rounded())
-                let c: UInt8 = v >= 0.5 ? a : 0
-                let i = (y * n + x) * 4
-                (px[i], px[i + 1], px[i + 2], px[i + 3]) = (c, c, c, a)
-            }
-        }
-        guard let provider = CGDataProvider(data: Data(px) as CFData) else { return nil }
-        return CGImage(
-            width: n, height: n, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: n * 4,
-            space: CGColorSpaceCreateDeviceRGB(),
-            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
-            provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent)
-    }()
-
-    private static func shading(_ f: Fill, _ g: FillGradient, mirror: Bool) -> GraphicsContext.Shading {
-        let stops = g.stops.map { st in
-            Gradient.Stop(
-                color: ink(white: st.white, saturation: st.saturation, hue: st.hue, alpha: st.a * f.a, dark: mirror),
-                location: min(1, max(0, st.offset)))
-        }
-        let gradient = Gradient(stops: stops)
-        if g.kind == 1 {
-            return .radialGradient(gradient, center: CGPoint(x: g.x0, y: g.y0), startRadius: 0, endRadius: max(0, g.r))
-        }
-        return .linearGradient(gradient, startPoint: CGPoint(x: g.x0, y: g.y0), endPoint: CGPoint(x: g.x1, y: g.y1))
-    }
-
     private static func drawWithMaterials(
         _ frame: OrbFrame, into context: inout GraphicsContext, size: CGSize, engineSize: Double, dark: Bool
     ) {
@@ -175,82 +162,14 @@ public enum FxPaint {
         let scale = min(size.width, size.height) / engineSize
         context.scaleBy(x: scale, y: scale)
 
-        // Fills first: closed polygons (nonzero winding), solid or gradient
-        // (final stop alpha = stop.a x fill.a).
-        for f in frame.fills where f.points.count >= 3 {
-            // Outer ring + every hole ring as one path; even-odd when there are holes.
-            var path = Path()
-            for ring in [f.points] + f.holes where ring.count >= 3 {
-                path.move(to: CGPoint(x: ring[0].x, y: ring[0].y))
-                for pt in ring.dropFirst() { path.addLine(to: CGPoint(x: pt.x, y: pt.y)) }
-                path.closeSubpath()
-            }
-            let style = FillStyle(eoFill: !f.holes.isEmpty)
-            // Grain (blend 2, design note 22): the shape filled with the noise tile
-            // at `a`, one tile pixel per point however large the character is drawn
-            // (the context is in engine units, `scale` points each), anchored at the origin.
-            if f.blend == 2 {
-                if let tile = grainTile {
-                    var c = context
-                    c.opacity = min(1, max(0, f.a))
-                    c.fill(
-                        path,
-                        with: .tiledImage(
-                            Image(decorative: tile, scale: 1), origin: .zero,
-                            sourceRect: CGRect(x: 0, y: 0, width: 1, height: 1), scale: 1 / max(scale, 1e-9)),
-                        style: style)
-                }
-                continue
-            }
-            withEffect(context, blur: f.blur, blend: f.blend) { c in
-                if let g = f.gradient, g.stops.count >= 2, g.kind == 2 {
-                    // An elliptical radial: a circle of radius rx in the gradient's own
-                    // space (centre, axis, squash), the path mapped back by the inverse.
-                    let (ux, uy) = (g.x1 - g.x0, g.y1 - g.y0)
-                    let rx = max(1e-9, (ux * ux + uy * uy).squareRoot())
-                    let (cs, sn, k) = (ux / rx, uy / rx, max(1e-9, g.r / rx))
-                    let m = CGAffineTransform(a: cs, b: sn, c: -sn * k, d: cs * k, tx: g.x0, ty: g.y0)
-                    var e = c
-                    e.concatenate(m)
-                    let stops = g.stops.map { st in
-                        Gradient.Stop(
-                            color: ink(
-                                white: st.white, saturation: st.saturation, hue: st.hue, alpha: st.a * f.a, dark: mirror
-                            ),
-                            location: min(1, max(0, st.offset)))
-                    }
-                    e.fill(
-                        path.applying(m.inverted()),
-                        with: .radialGradient(Gradient(stops: stops), center: .zero, startRadius: 0, endRadius: rx),
-                        style: style)
-                } else if let g = f.gradient, g.stops.count >= 2 {
-                    c.fill(path, with: shading(f, g, mirror: mirror), style: style)
-                } else {
-                    c.fill(
-                        path,
-                        with: .color(
-                            ink(white: f.white, saturation: f.saturation, hue: f.hue, alpha: f.a, dark: mirror)),
-                        style: style)
-                }
-            }
-        }
-
-        let polyRuns = runs(frame.effects, target: 2, count: frame.polylines.count)
-        for (i, p) in frame.polylines.enumerated() where p.points.count >= 2 {
-            let e = polyRuns?[i] ?? nil
-            if hasHues(p) {
-                strokeHues(p, in: context, mirror: mirror, blur: e?.blur ?? 0, blend: e?.blend ?? 0)
-                continue
-            }
+        for p in frame.polylines where p.points.count >= 2 {
             var path = Path()
             path.move(to: CGPoint(x: p.points[0].x, y: p.points[0].y))
             for pt in p.points.dropFirst() { path.addLine(to: CGPoint(x: pt.x, y: pt.y)) }
-            withEffect(context, blur: e?.blur ?? 0, blend: e?.blend ?? 0) { c in
-                c.stroke(
-                    path,
-                    with: .color(ink(white: p.white, saturation: p.saturation, hue: p.hue, alpha: p.a, dark: mirror)),
-                    style: StrokeStyle(lineWidth: p.w, lineCap: .round, lineJoin: .round))
-            }
+            context.stroke(
+                path,
+                with: .color(ink(white: p.white, saturation: p.saturation, hue: p.hue, alpha: p.a, dark: mirror)),
+                style: StrokeStyle(lineWidth: p.w, lineCap: .round, lineJoin: .round))
         }
         let lineRuns = runs(frame.effects, target: 1, count: frame.lines.count)
         for (i, l) in frame.lines.enumerated() {
@@ -269,6 +188,10 @@ public enum FxPaint {
         for (i, d) in frame.dots.enumerated() {
             let rect = CGRect(x: d.x - d.r, y: d.y - d.r, width: d.r * 2, height: d.r * 2)
             let e = dotRuns?[i] ?? nil
+            if e?.blend == light {
+                drawLight(d, in: context, dark: dark, mirror: dark && frame.colorMode != .fixed)
+                continue
+            }
             withEffect(context, blur: e?.blur ?? 0, blend: e?.blend ?? 0) { c in
                 c.fill(
                     Path(ellipseIn: rect),
@@ -276,45 +199,6 @@ public enum FxPaint {
                         ink(
                             white: d.white, saturation: d.saturation, hue: d.hue, alpha: d.a,
                             dark: dark && frame.colorMode != .fixed)))
-            }
-        }
-    }
-
-    // MARK: - Per-vertex stroke colour (contract: docs/engine.md "Per-vertex stroke colour")
-
-    static func hasHues(_ p: Polyline) -> Bool {
-        !p.hues.isEmpty && p.hues.count == p.points.count
-    }
-
-    /// Each segment i-1 -> i: a round-capped stroke with a linear gradient between its
-    /// vertices' inks at alpha 1 (a zero-length segment: a dot of diameter w in vertex
-    /// i's colour), all inside one `drawLayer`, which the context copy composites once
-    /// at `a` with the effect run's blur/blend -- so round-cap overlaps never
-    /// double-paint. The copy keeps the caller's opacity (cross-dissolves).
-    static func strokeHues(_ p: Polyline, in context: GraphicsContext, mirror: Bool, blur: Double, blend: UInt8) {
-        let colors = p.hues.map { ink(white: p.white, saturation: p.saturation, hue: $0, alpha: 1, dark: mirror) }
-        withEffect(context, blur: blur, blend: blend) { c in
-            c.opacity *= p.a
-            c.drawLayer { layer in
-                let style = StrokeStyle(lineWidth: p.w, lineCap: .round)
-                for i in 1..<p.points.count {
-                    let a = CGPoint(x: p.points[i - 1].x, y: p.points[i - 1].y)
-                    let b = CGPoint(x: p.points[i].x, y: p.points[i].y)
-                    if hypot(b.x - a.x, b.y - a.y) < 1e-9 {
-                        let r = p.w / 2
-                        layer.fill(
-                            Path(ellipseIn: CGRect(x: b.x - r, y: b.y - r, width: 2 * r, height: 2 * r)),
-                            with: .color(colors[i]))
-                        continue
-                    }
-                    var seg = Path()
-                    seg.move(to: a)
-                    seg.addLine(to: b)
-                    layer.stroke(
-                        seg,
-                        with: .linearGradient(
-                            Gradient(colors: [colors[i - 1], colors[i]]), startPoint: a, endPoint: b), style: style)
-                }
             }
         }
     }

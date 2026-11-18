@@ -23,7 +23,11 @@ public final class TestToneVoiceSource: VoiceSource {
 
     public func onMetrics(_ cb: @escaping (VoiceMetrics) -> Void) { metricsCb = cb }
     public func onStateChange(_ cb: @escaping (AgentState) -> Void) { stateCb = cb }
-    public func onConnectionChange(_ cb: @escaping (Bool) -> Void) { connectionCb = cb }
+    /// Running, it replays `true` at once (the state follows on the next tick).
+    public func onConnectionChange(_ cb: @escaping (Bool) -> Void) {
+        connectionCb = cb
+        if timer != nil { cb(true) }
+    }
     public var reportsConnection: Bool { true }
     public var supportsMute: Bool { true }
     /// Muted, the tone stands in for a muted mic: the level reads 0.

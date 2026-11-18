@@ -100,9 +100,17 @@ public final class SimulatedVoiceSource: VoiceSource {
     }
 
     public func onMetrics(_ cb: @escaping (VoiceMetrics) -> Void) { metricsCb = cb }
-    public func onStateChange(_ cb: @escaping (AgentState) -> Void) { stateCb = cb }
+    /// Connected, it replays the current state at once: a view mounted after `connect()` doesn't stay idle.
+    public func onStateChange(_ cb: @escaping (AgentState) -> Void) {
+        stateCb = cb
+        if connected, let s = lastState { cb(AgentState(rawValue: s) ?? .idle) }
+    }
     public func onInterrupt(_ cb: @escaping () -> Void) { interruptCb = cb }
-    public func onConnectionChange(_ cb: @escaping (Bool) -> Void) { connectionCb = cb }
+    /// Connected, it replays `true` at once, in any state.
+    public func onConnectionChange(_ cb: @escaping (Bool) -> Void) {
+        connectionCb = cb
+        if connected { cb(true) }
+    }
     public var reportsConnection: Bool { true }
     public var supportsMute: Bool { true }
 

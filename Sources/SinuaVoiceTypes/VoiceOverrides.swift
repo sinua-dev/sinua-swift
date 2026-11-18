@@ -2,9 +2,9 @@ import Foundation
 
 /// Port of packages/core/src/voice.ts's `VoiceOverrides` -- turns a live
 /// voice reading into the exact `[String: Double]` `frameWithOverrides`
-/// takes, with the Web Studio's tuned easing, the barge-in age and the
-/// scrolling-style history. Clock-free (dt-driven), same defaults and
-/// same key encodings as Web; see docs/audio-pipeline.md.
+/// takes, with the Web Studio's tuned easing and the barge-in age.
+/// Clock-free (dt-driven), same defaults and same key encodings as Web;
+/// see docs/audio-pipeline.md.
 public struct InterruptOptions: Sendable {
     /// Seconds `interruptAge` keeps being emitted after the moment. Default 1.
     public var window: Double = 1
@@ -30,9 +30,6 @@ public struct VoiceOverridesOptions: Sendable {
     public var levelEaseRate: Double = 7
     /// `audioBand*` easing per second. Default 24; `.infinity` = raw.
     public var bandEaseRate: Double = 24
-    /// Scrolling-style history: `count` samples pushed `hz` times per second (default 12). Off when nil.
-    public var historyCount: Int?
-    public var historyHz: Double = 12
     /// The barge-in flash; nil disables `interruptAge`.
     public var interrupt: InterruptOptions? = InterruptOptions()
     public var muted = false
@@ -41,20 +38,16 @@ public struct VoiceOverridesOptions: Sendable {
     public init() {}
 }
 
-/// Pure, stateless form: one reading + one state -> overrides (no easing, no history, no interrupt).
+/// Pure, stateless form: one reading + one state -> overrides (no easing, no interrupt).
 public func voiceOverrides(
     _ metrics: VoiceMetrics, state: AgentState, options: VoiceOverridesOptions = VoiceOverridesOptions()
 ) -> [String: Double] {
     buildOverrides(
-        level: metrics.level, bands: metrics.bands, state: state, options: options, history: nil, interruptAge: nil)
+        level: metrics.level, bands: metrics.bands, state: state, options: options, interruptAge: nil)
 }
 
 public final class VoiceOverrides {
     private let options: VoiceOverridesOptions
-    private var history: [Double]?
-    private var historyAcc = 0.0
-    private var historyPeak = 0.0
-    private var historyPhase = 0.0
     private var interruptAgeValue: Double?
     private var interruptFresh = false
 
@@ -71,7 +64,6 @@ public final class VoiceOverrides {
     public init(options: VoiceOverridesOptions = VoiceOverridesOptions()) {
         self.options = options
         muted = options.muted
-        if let n = options.historyCount { history = [Double](repeating: 0, count: max(1, n)) }
     }
 
     /// Subscribes to `source`'s metrics, state and interrupt callbacks. A source holds one
@@ -99,25 +91,10 @@ public final class VoiceOverrides {
         interruptFresh = true
     }
 
-    public func setHistoryCount(_ count: Int) {
-        let n = max(1, count)
-        guard var h = history else {
-            history = [Double](repeating: 0, count: n)
-            return
-        }
-        while h.count > n { h.removeFirst() }
-        while h.count < n { h.insert(0, at: 0) }
-        history = h
-    }
-
     public func reset() {
         metrics = .silent
         level = 0
         bands = []
-        if let h = history { history = [Double](repeating: 0, count: h.count) }
-        historyAcc = 0
-        historyPeak = 0
-        historyPhase = 0
         interruptAgeValue = nil
         interruptFresh = false
     }
@@ -151,26 +128,10 @@ public final class VoiceOverrides {
             for i in raw.indices { bands[i] += (raw[i] - bands[i]) * k }
         }
 
-        var hist: (buf: [Double], phase: Double)?
-        if var h = history {
-            let interval = 1 / options.historyHz
-            historyAcc += dt
-            historyPeak = max(historyPeak, metrics.level)
-            while historyAcc >= interval {
-                h.append(historyPeak)
-                h.removeFirst()
-                historyPeak = 0
-                historyAcc -= interval
-            }
-            history = h
-            historyPhase = historyAcc / interval
-            hist = (h, historyPhase)
-        }
-
         var opts = options
         opts.muted = muted
         return buildOverrides(
-            level: level, bands: bands, state: state, options: opts, history: hist, interruptAge: interrupt)
+            level: level, bands: bands, state: state, options: opts, interruptAge: interrupt)
     }
 }
 
@@ -184,7 +145,7 @@ private func clamp01(_ v: Double) -> Double {
 
 private func buildOverrides(
     level: Double, bands: [Double], state: AgentState, options: VoiceOverridesOptions,
-    history: (buf: [Double], phase: Double)?, interruptAge: Double?
+    interruptAge: Double?
 ) -> [String: Double] {
     var out: [String: Double] = [
         "audioLevel": clamp01(level),
@@ -194,11 +155,6 @@ private func buildOverrides(
     let n = min(bands.count, maxAudioBands)
     out["audioBandCount"] = Double(n)
     for i in 0..<n { out["audioBand\(i)"] = clamp01(bands[i]) }
-    if let h = history {
-        out["historyCount"] = Double(h.buf.count)
-        for (i, v) in h.buf.enumerated() { out["history\(i)"] = clamp01(v) }
-        out["historyPhase"] = h.phase
-    }
     if let age = interruptAge, let io = options.interrupt {
         out["interruptAge"] = age
         if let v = io.duration { out["interruptDuration"] = v }

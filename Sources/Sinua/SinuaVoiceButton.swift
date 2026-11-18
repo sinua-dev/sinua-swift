@@ -139,11 +139,10 @@ public struct SinuaVoiceButton: View {
     static func ring(_ s: VoiceButtonState)
         -> (pattern: String, state: String, overrides: [String: Double], speed: Double)?
     {
-        let ring: [String: Double] = ["progress": 1, "strokeWidth": 0.045]
         switch s {
-        case .connecting: return ("loading", "initializing", ["strokeWidth": 0.045, "trackOpacity": 0.15], 1)
-        case .listening: return ("completing", "listening", ring, 1)
-        case .muted: return ("completing", "listening", ring, 0.15)
+        case .connecting: return ("connecting", "initializing", [:], 1)
+        case .listening: return ("listening", "listening", [:], 1)
+        case .muted: return ("listening", "listening", [:], 0.15)
         default: return nil
         }
     }

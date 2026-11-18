@@ -79,9 +79,11 @@ public final class SharedVoiceSource: VoiceSource {
         return { [weak self] in self?.metricsCbs[i] = nil }
     }
 
+    /// A listener added mid-session gets the current state at once.
     @discardableResult public func listenState(_ cb: @escaping (AgentState) -> Void) -> () -> Void {
         let i = id()
         stateCbs[i] = cb
+        if state != .idle { cb(state) }
         return { [weak self] in self?.stateCbs[i] = nil }
     }
 
@@ -98,10 +100,12 @@ public final class SharedVoiceSource: VoiceSource {
         return { [weak self] in self?.muteCbs[i] = nil }
     }
 
-    /// Only fires for a source that reports it (`reportsConnection`).
+    /// Only fires for a source that reports it (`reportsConnection`). A listener added while
+    /// connected gets `true` at once.
     @discardableResult public func listenConnection(_ cb: @escaping (Bool) -> Void) -> () -> Void {
         let i = id()
         connectionCbs[i] = cb
+        if connected { cb(true) }
         return { [weak self] in self?.connectionCbs[i] = nil }
     }
 
@@ -143,7 +147,7 @@ public final class SharedVoiceSource: VoiceSource {
         for cb in muteCbs.values { cb(m) }
     }
 
-    /// A view's own tracker fed from this fan-out: its family's easing and history, the
+    /// A view's own tracker fed from this fan-out: its family's easing, the
     /// muted cue following `muted`. Released with `Tracked.release()` or when it deinits.
     public func track(options: VoiceOverridesOptions = VoiceOverridesOptions()) -> Tracked {
         let v = VoiceOverrides(options: options)
